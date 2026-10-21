@@ -1,0 +1,209 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>My Dashboard — ICU Sentinel</title>
+  <link rel="stylesheet" href="/assets/css/styles.css">
+</head>
+<body>
+<div class="layout">
+  <div class="main" id="main">
+    <header class="topbar">
+      <button class="hamburger" id="hamburger" aria-label="Toggle navigation"><i data-lucide="menu"></i></button>
+      <h1 id="topbar-title">My Health Dashboard</h1>
+      <div class="spacer"></div>
+      <span class="conn-pill" id="conn-pill"><span class="dot"></span>Connecting</span>
+      <button class="btn secondary sm" id="icu-theme" aria-label="Toggle theme"><i data-lucide="moon"></i></button>
+    </header>
+
+    <div class="content">
+      <div class="banner warn" id="esp-offline-banner" style="display:none;">
+        <i data-lucide="wifi-off"></i>
+        <div><strong>ESP: </strong></div>
+      </div>
+
+      <div id="root"><div class="spinner"></div></div>
+    </div>
+  </div>
+</div>
+
+<script src="/assets/js/vendor/lucide.min.js"></script>
+<script src="/assets/js/vendor/chart.umd.min.js"></script>
+<script src="/assets/js/core.js"></script>
+<script src="/assets/js/app.js"></script>
+<script>
+"use strict";
+let ME = null, PID = null, conn = null;
+const charts = {};
+
+function metric(label, value, unit, cls, meta, icon) {
+  return `<div class="metric ${cls}">
+    <div class="label"><i data-lucide="${icon}"></i> ${label}</div>
+    <div class="value"><span id="m-${cls}">${value}</span><span class="unit">${unit}</span></div>
+    <div class="meta" id="meta-${cls}">${meta || ""}</div>
+  </div>`;
+}
+
+async function loadHistory() {
+  const data = await ICU.get(`/patients/${PID}/readings`, { limit: 200 });
+  const rows = (data.readings || []).slice().reverse();
+  const labels = rows.map((r) => ICU.fmtClock(r.received_at));
+  const mk = (key, color, unit, min, max, get, fill) => {
+    if (charts[key]) ICU.destroyChart(charts[key]);
+    charts[key] = ICU.makeChart(document.getElementById("chart-" + key), labels, rows.map(get),
+      { color, unit, fill: fill !== false, min, max });
+  };
+  mk("hr", ICU.CHART_COLORS.hr, "bpm", 25, undefined, (r) => (r.is_valid && r.heart_rate != null ? r.heart_rate : null));
+  mk("spo2", ICU.CHART_COLORS.spo2, "%", 50, 101, (r) => (r.is_valid && r.spo2 != null ? r.spo2 : null));
+  mk("temp", ICU.CHART_COLORS.temp, "°C", undefined, undefined, (r) => r.ambient_temperature);
+  mk("hum", ICU.CHART_COLORS.hum, "%", 0, 100, (r) => r.ambient_humidity);
+}
+
+async function loadAlerts() {
+  const data = await ICU.get(`/patients/${PID}/alerts`, { limit: 30 });
+  const el = document.getElementById("my-alerts");
+  const alerts = data.alerts || [];
+  el.innerHTML = alerts.length
+    ? alerts.map((a) => `<div class="alert-item ${a.severity}">
+        <div class="head"><span class="title">${ICU.esc(a.title)}</span>${ICU.sevBadge(a.severity)}
+          <span class="badge neutral">${ICU.esc(a.status)}</span></div>
+        <div class="msg">${ICU.esc(a.message)}</div>
+        <div class="foot"><span>${ICU.fmtTime(a.created_at)}</span></div>
+      </div>`).join("")
+    : `<div class="state-box"><i data-lucide="circle-check"></i><div>No alerts in your history yet</div></div>`;
+  ICU.icons();
+}
+
+  function applyLive(data) {
+    const r = data.reading || {};
+    const set = (id, v) => { const el = document.getElementById(id); if (el) el.textContent = v; };
+    const has = r && (r.heart_rate != null || r.spo2 != null || r.ambient_temperature != null);
+    if (!has && window._demoApplied) return;
+    if (!has) {
+      // Show test values until ESP connects
+      window._demoApplied = true;
+      set("m-hr", "78");
+      set("m-spo2", "97");
+      set("m-temp", "28.4");
+      set("m-hum", "61");
+      set("meta-hr", "signal quality: good");
+      document.getElementById("freshness").innerHTML = `<span class="badge neutral">ESP: OFFLINE</span>`;
+      document.getElementById("stale-warn").style.display = "none";
+      if (document.getElementById("m-bp-d")) document.getElementById("m-bp-d").textContent = "132/84";
+      if (document.getElementById("m-finger-d")) document.getElementById("m-finger-d").textContent = "DETECTED";
+      if (document.getElementById("m-buzz-d")) document.getElementById("m-buzz-d").innerHTML = '<span class="badge neutral">OFF</span>';
+      if (window._demoChart) return;
+      try {
+        const labels = ["-5m","-4m","-3m","-2m","-1m","now"];
+        const ctxH = document.getElementById("chart-hr"); if(ctxH && !charts.hr){ charts.hr = new Chart(ctxH.getContext('2d'), {type:'line', data:{labels, datasets:[{data:[76,77,78,78,79,78], borderColor:'#f43f5e', tension:.25}]}, options:{responsive:true,maintainAspectRatio:false,plugins:{legend:{display:false}},scales:{x:{ticks:{color:'#94a3b8'}},y:{ticks:{color:'#94a3b8'}}}}}); }
+        const ctxS = document.getElementById("chart-spo2"); if(ctxS && !charts.spo2){ charts.spo2 = new Chart(ctxS.getContext('2d'), {type:'line', data:{labels, datasets:[{data:[97,98,97,97,97,97], borderColor:'#3b82f6', tension:.25}]}, options:{responsive:true,maintainAspectRatio:false,plugins:{legend:{display:false}},scales:{x:{ticks:{color:'#94a3b8'}},y:{ticks:{color:'#94a3b8'}}}}}); }
+        const ctxT = document.getElementById("chart-temp"); if(ctxT && !charts.temp){ charts.temp = new Chart(ctxT.getContext('2d'), {type:'line', data:{labels, datasets:[{data:[28.1,28.2,28.3,28.4,28.4,28.4], borderColor:'#d97706', tension:.25}]}, options:{responsive:true,maintainAspectRatio:false,plugins:{legend:{display:false}},scales:{x:{ticks:{color:'#94a3b8'}},y:{ticks:{color:'#94a3b8'}}}}}); }
+        const ctxH2 = document.getElementById("chart-hum"); if(ctxH2 && !charts.hum){ charts.hum = new Chart(ctxH2.getContext('2d'), {type:'line', data:{labels, datasets:[{data:[60,60,61,61,61,61], borderColor:'#0d9488', tension:.25}]}, options:{responsive:true,maintainAspectRatio:false,plugins:{legend:{display:false}},scales:{x:{ticks:{color:'#94a3b8'}},y:{ticks:{color:'#94a3b8'}}}}}); }
+        window._demoChart = true;
+      } catch(e){}
+      return;
+    }
+    set("m-hr", ICU.num(r.heart_rate));
+    set("m-spo2", ICU.num(r.spo2));
+    set("m-temp", ICU.num(r.ambient_temperature, 1));
+    set("m-hum", ICU.num(r.ambient_humidity));
+    set("meta-hr", r.signal_quality ? `signal quality: ${r.signal_quality}` : "waiting for data…");
+      document.getElementById("freshness").innerHTML = data.stale
+        ? `<span class="badge stale">ESP: OFFLINE</span>`
+        : `<span class="badge ok">Live</span>`;
+      document.getElementById("stale-warn").style.display = "none";
+      if (document.getElementById("esp-offline-banner")) document.getElementById("esp-offline-banner").style.display = "none";
+    if (document.getElementById("m-bp-d")) document.getElementById("m-bp-d").textContent = (r.systolic_bp!=null?r.systolic_bp:"—") + "/" + (r.diastolic_bp!=null?r.diastolic_bp:"—");
+    if (document.getElementById("m-finger-d")) document.getElementById("m-finger-d").textContent = r.finger_present===true?"DETECTED":(r.finger_present===false?"NOT DETECTED":"—");
+    if (document.getElementById("m-buzz-d")) document.getElementById("m-buzz-d").innerHTML = r.buzzer_alert ? '<span class="badge critical">ALERT</span>' : '<span class="badge neutral">OFF</span>';
+
+  const risk = data.risk || {};
+  const badge = document.getElementById("risk-badge");
+  badge.className = "badge " + (risk.category || "low");
+  badge.textContent = risk.category || "low";
+  document.getElementById("risk-reasons").innerHTML =
+    (risk.reasons || []).map((x) => `<li>${ICU.esc(x)}</li>`).join("") || "<li>No assessment yet.</li>";
+  document.getElementById("active-alerts").innerHTML = (data.active_alerts || []).map((a) => `
+    <div class="alert-item ${a.severity}">
+      <div class="head"><span class="title">${ICU.esc(a.title)}</span>${ICU.sevBadge(a.severity)}</div>
+      <div class="msg">${ICU.esc(a.message)}</div>
+      <div class="foot"><span>${ICU.fmtTime(a.created_at)}</span></div>
+    </div>`).join("") || `<p class="muted text-sm">No active warnings right now. Remember: a “Low” software
+      priority is <strong>not</strong> a guarantee that everything is normal — always report symptoms to your care team.</p>`;
+}
+
+(async function boot() {
+  ME = await ICUShell.init({ title: "My Health Dashboard", active: "/patient_dashboard.html", roles: ["patient"] });
+  if (!ME) return;
+  PID = ME.user.id;
+
+  const summary = await ICU.get(`/patients/${PID}/summary`);
+  document.getElementById("root").innerHTML = `
+      <div class="banner info" id="stale-warn" style="display:none;"></div>
+
+    <div class="grid grid-4 mb">
+      ${metric("Heart rate", "—", "bpm", "hr", "MAX30102", "heart-pulse")}
+      ${metric("SpO₂", "—", "%", "spo2", "MAX30102", "droplets")}
+      ${metric("Room temp", "—", "°C", "temp", "DHT11 ambient", "thermometer")}
+      ${metric("Room humidity", "—", "%", "hum", "DHT11 ambient", "cloud-humidity")}
+    </div>
+
+    <div class="grid grid-4 mb">
+      <div class="metric" style="border:1px dashed #f59e0b;"><div class="label"><strong>BP</strong></div><div class="value"><span id="m-bp-d">—</span><span class="unit">mmHg</span></div><div class="meta">SIMULATED</div></div>
+      <div class="metric"><div class="label">Finger</div><div class="value" style="font-size:1.2rem;"><span id="m-finger-d">—</span></div><div class="meta">status</div></div>
+      <div class="metric"><div class="label">Buzzer</div><div class="value" style="font-size:1.2rem;"><span id="m-buzz-d">—</span></div><div class="meta">ESP</div></div>
+      <div class="metric"><div class="label">Status</div><div class="value" style="font-size:1rem;">ESP: Connection</div><div class="meta">sample until connect</div></div>
+    </div>
+
+    <div class="grid grid-2 mb">
+      <div class="card">
+        <div class="card-head"><h2><i data-lucide="user"></i> My profile</h2>
+          <span id="freshness"></span></div>
+        <table class="data"><tbody>
+          <tr><td>Name</td><td class="right">${ICU.esc(summary.patient.full_name)}</td></tr>
+          <tr><td>Email</td><td class="right">${ICU.esc(summary.patient.email)}</td></tr>
+          <tr><td>Ward / Bed</td><td class="right">${ICU.esc((summary.profile && summary.profile.ward) || "—")} / ${ICU.esc((summary.profile && summary.profile.bed_label) || "—")}</td></tr>
+          <tr><td>Assigned device</td><td class="right mono">${ICU.esc(summary.device.device_uid || "not assigned")}</td></tr>
+          <tr><td>Device status</td><td class="right"><span class="badge ${summary.device.online ? "online" : "offline"}">${summary.device.online ? "online" : "offline"}</span></td></tr>
+          <tr><td>Last reading received</td><td class="right dim" id="last-reading">${summary.latest.received_at ? ICU.fmtTime(summary.latest.received_at) : "never"}</td></tr>
+        </tbody></table>
+      </div>
+      <div class="card">
+        <div class="card-head"><h2><i data-lucide="brain-circuit"></i> What my current warnings mean</h2>
+          <span id="risk-badge" class="badge low">low</span></div>
+        <ul class="reasons" id="risk-reasons"><li>Waiting for assessment…</li></ul>
+        <p class="text-xs muted mt">These are automated prototype rules based on your sensor readings. They help
+        your care team pay attention early — they are <strong>not a diagnosis</strong>.</p>
+      </div>
+    </div>
+
+    <div class="card mb">
+      <div class="card-head"><h2><i data-lucide="siren"></i> Active warnings</h2></div>
+      <div id="active-alerts"></div>
+    </div>
+
+    <div class="grid grid-2 mb">
+      <div class="card"><div class="card-head"><h2><i data-lucide="heart-pulse"></i> Heart rate</h2></div>
+        <div class="chart-box"><canvas id="chart-hr"></canvas></div></div>
+      <div class="card"><div class="card-head"><h2><i data-lucide="droplets"></i> SpO₂</h2></div>
+        <div class="chart-box"><canvas id="chart-spo2"></canvas></div></div>
+      <div class="card"><div class="card-head"><h2><i data-lucide="thermometer"></i> Room temperature</h2></div>
+        <div class="chart-box"><canvas id="chart-temp"></canvas></div></div>
+      <div class="card"><div class="card-head"><h2><i data-lucide="cloud-humidity"></i> Room humidity</h2></div>
+        <div class="chart-box"><canvas id="chart-hum"></canvas></div></div>
+    </div>
+
+    <div class="card mb">
+      <div class="card-head"><h2><i data-lucide="history"></i> My alert history</h2>
+        <a class="btn secondary sm" href="/api/v1/patients/${PID}/export" target="_blank"><i data-lucide="download"></i> Download my data (CSV)</a></div>
+      <div id="my-alerts"></div>
+    </div>`;
+
+  await Promise.all([loadHistory(), loadAlerts()]);
+  conn = ICU.live(PID, applyLive);
+  ICU.icons();
+})();
+</script>
+</body>
+</html>

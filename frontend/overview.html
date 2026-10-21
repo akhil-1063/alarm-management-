@@ -1,0 +1,308 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Overview — ICU Sentinel</title>
+  <link rel="stylesheet" href="/assets/css/styles.css">
+</head>
+<body>
+<div class="layout">
+  <div class="main" id="main">
+    <header class="topbar">
+      <button class="hamburger" id="hamburger" aria-label="Toggle navigation"><i data-lucide="menu"></i></button>
+      <h1 id="topbar-title">Overview</h1>
+      <div class="spacer"></div>
+      <span class="conn-pill" id="conn-pill"><span class="dot"></span>Connected</span>
+      <button class="btn secondary sm" id="icu-theme" aria-label="Toggle theme"><i data-lucide="moon"></i></button>
+    </header>
+
+    <div class="content">
+      <div class="banner warn" id="prototype-notice">
+        <i data-lucide="triangle-alert"></i>
+        <div><strong>Prototype software priorities only.</strong> Risk categories are rule-based software
+        priorities, not clinically validated classifications. A “Low” risk is <em>not</em> proof that a patient is safe.
+        Not a substitute for hospital alarm equipment or clinical assessment.</div>
+      </div>
+
+      <div id="content-root"><div class="spinner"></div></div>
+    </div>
+  </div>
+</div>
+
+<script src="/assets/js/vendor/lucide.min.js"></script>
+<script src="/assets/js/vendor/chart.umd.min.js"></script>
+<script src="/assets/js/core.js"></script>
+<script src="/assets/js/app.js"></script>
+<script>
+"use strict";
+const root = document.getElementById("content-root");
+
+function metric(label, value, cls, meta, icon) {
+  return `<div class="metric ${cls || ""}">
+    <div class="label"><i data-lucide="${icon || "circle"}"></i> ${label}</div>
+    <div class="value">${value}</div>
+    <div class="meta">${meta || ""}</div>
+  </div>`;
+}
+
+async function renderAdmin() {
+  const [ov, summary] = await Promise.all([
+    ICU.get("/admin/overview"),
+    ICU.get("/analytics/summary"),
+  ]);
+  root.innerHTML = `
+    <div class="grid grid-4 mb">
+      ${metric("Registered patients", ov.total_patients, "", "active patient accounts", "users")}
+      ${metric("Registered doctors", ov.total_doctors, "",
+          ov.pending_doctor_approvals ? `<span class="badge moderate">${ov.pending_doctor_approvals} pending approval</span>` : "all approved", "stethoscope")}
+      ${metric("Devices online", `${ov.devices_online}/${ov.total_devices}`, "",
+          ov.devices_offline ? `<span class="badge critical">${ov.devices_offline} offline</span>` : "all devices checked in", "cpu")}
+      ${metric("Active alerts", ov.active_alerts, ov.active_alerts ? "alerting" : "",
+          summary.critical_alerts ? `<span class="badge critical">${summary.critical_alerts} critical</span>` : "no critical alerts", "siren")}
+    </div>
+
+    <div class="grid grid-3 mb">
+      <div class="card">
+        <div class="card-head"><h2><i data-lucide="database"></i> System health</h2>
+          <span class="badge ${ov.database_status === "ok" ? "ok" : "critical"}">DB ${ov.database_status}</span>
+        </div>
+        <table class="data"><tbody>
+          <tr><td>Readings stored</td><td class="num right">${ov.readings_total.toLocaleString()}</td></tr>
+          <tr><td>Last hour</td><td class="num right">${summary.readings_last_hour}</td></tr>
+          <tr><td>Server time</td><td class="right dim">${ICU.fmtTime(ov.server_time)}</td></tr>
+        </tbody></table>
+        <div class="mt"><a class="btn secondary sm" href="/admin.html"><i data-lucide="settings-2"></i> Administration</a></div>
+      </div>
+
+      <div class="card">
+        <div class="card-head"><h2><i data-lucide="brain-circuit"></i> Risk breakdown</h2></div>
+        <table class="data"><tbody>
+          ${Object.entries(summary.risk_breakdown).map(([k, v]) =>
+            `<tr><td>${ICU.riskBadge(k)}</td><td class="num right">${v} patient${v === 1 ? "" : "s"}</td></tr>`).join("")}
+        </tbody></table>
+        <p class="text-xs muted mt">Latest stored assessment per patient.</p>
+      </div>
+
+      <div class="card">
+        <div class="card-head"><h2><i data-lucide="link"></i> Quick actions</h2></div>
+        <div class="row" style="flex-direction:column;align-items:stretch;gap:.5rem;">
+          <a class="btn secondary" href="/doctors.html"><i data-lucide="user-check"></i> Approve doctors &amp; assignments</a>
+          <a class="btn secondary" href="/devices.html"><i data-lucide="cpu"></i> Register / assign devices</a>
+          <a class="btn secondary" href="/alerts.html"><i data-lucide="siren"></i> Review alerts</a>
+          <a class="btn secondary" href="/admin.html#tests"><i data-lucide="flask-conical"></i> Developer test panel</a>
+        </div>
+      </div>
+    </div>
+
+    <div class="card">
+      <div class="card-head"><h2><i data-lucide="scroll-text"></i> Recent system events</h2>
+        <a class="btn secondary sm" href="/admin.html#audit">Full audit log</a></div>
+      <div class="table-wrap">
+        <table class="data">
+          <thead><tr><th>Time</th><th>Actor</th><th>Action</th><th>Entity</th><th>Detail</th></tr></thead>
+          <tbody>
+            ${ov.recent_events.map((e) => `<tr>
+              <td class="dim">${ICU.fmtTime(e.created_at)}</td>
+              <td>${ICU.esc(e.actor_label)}</td>
+              <td><span class="badge neutral">${ICU.esc(e.action)}</span></td>
+              <td class="dim">${ICU.esc(e.entity_type || "")} ${ICU.esc(e.entity_id || "")}</td>
+              <td class="dim" style="white-space:normal;max-width:340px;">${ICU.esc((e.detail || "").slice(0, 140))}</td>
+            </tr>`).join("") || `<tr><td colspan="5" class="center muted">No events yet</td></tr>`}
+          </tbody>
+        </table>
+      </div>
+    </div>`;
+  ICU.icons();
+}
+
+async function renderDoctor() {
+  const [ov, patients, alertsData] = await Promise.all([
+    ICU.get("/doctors/overview"),
+    ICU.get("/doctors/patients"),
+    ICU.get("/alerts", { status: "active", limit: 50 }),
+  ]);
+  const alerts = alertsData.alerts || [];
+  root.innerHTML = `
+    <div class="grid grid-4 mb">
+      ${metric("Assigned patients", ov.total_patients, "", `${patients.length} shown in table`, "users")}
+      ${metric("Elevated risk", ov.risk_counts.moderate + ov.risk_counts.high + ov.risk_counts.critical, "temp",
+          `${ov.risk_counts.high} high · ${ov.risk_counts.critical} critical`, "triangle-alert")}
+      ${metric("Stale / missing data", ov.stale_patients, ov.stale_patients ? "alerting" : "",
+          `staleness threshold ${"60"}s`, "wifi-off")}
+      ${metric("Unacknowledged alerts", ov.unacknowledged_alerts, ov.unacknowledged_alerts ? "alerting" : "",
+          ov.critical_unacknowledged ? `<span class="badge critical">${ov.critical_unacknowledged} critical</span>` : "none critical", "bell-ring")}
+    </div>
+
+    <div class="grid grid-2 mb">
+      <div class="card">
+        <div class="card-head"><h2><i data-lucide="siren"></i> Active alerts requiring review</h2>
+          <a class="btn secondary sm" href="/alerts.html">Open alerts</a></div>
+        ${alerts.slice(0, 6).map(alertCard).join("") ||
+          `<div class="state-box"><i data-lucide="circle-check"></i><div>No active alerts</div></div>`}
+      </div>
+      <div class="card">
+        <div class="card-head"><h2><i data-lucide="activity"></i> Recently received readings</h2></div>
+        <div class="table-wrap">
+          <table class="data">
+            <thead><tr><th>Patient</th><th>HR</th><th>SpO₂</th><th>Quality</th><th>Received</th></tr></thead>
+            <tbody>
+              ${(ov.recent_readings || []).map((r) => {
+                const p = patients.find((x) => x.user_id === r.patient_user_id);
+                return `<tr>
+                  <td>${ICU.esc(p ? p.full_name : "#" + r.patient_user_id)}</td>
+                  <td class="num">${r.is_valid && r.heart_rate != null ? ICU.num(r.heart_rate) + " bpm" : "—"}</td>
+                  <td class="num">${r.is_valid && r.spo2 != null ? ICU.num(r.spo2) + "%" : "—"}</td>
+                  <td>${ICU.qualityBadge(r.signal_quality)} ${ICU.simBadge(r.is_simulated)}</td>
+                  <td class="dim">${ICU.fmtTime(r.received_at)}</td>
+                </tr>`;
+              }).join("") || `<tr><td colspan="5" class="center muted">No readings in the last hour</td></tr>`}
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+
+    <div class="card">
+      <div class="card-head"><h2><i data-lucide="users"></i> Patient risk board</h2>
+        <a class="btn primary sm" href="/doctor_dashboard.html"><i data-lucide="list"></i> Open full patient table</a></div>
+      <div class="table-wrap">
+        <table class="data">
+          <thead><tr><th>Patient</th><th>Ward / Bed</th><th>Device</th><th>Status</th><th>Risk</th><th>Alerts</th><th></th></tr></thead>
+          <tbody>
+            ${patients.map((p) => `<tr class="clickable" onclick="location.href='/patient_monitor.html?id=${p.user_id}'">
+              <td><strong>${ICU.esc(p.full_name)}</strong><br><span class="text-xs muted">${ICU.esc(p.email)}</span></td>
+              <td>${ICU.esc(p.ward || "—")} / ${ICU.esc(p.bed_label || "—")}</td>
+              <td class="mono">${ICU.esc(p.assigned_device_uid || "unassigned")}
+                <br><span class="badge ${p.device_online ? "online" : "offline"}">${p.device_online ? "online" : "offline"}</span></td>
+              <td>${p.last_data_at
+                ? `<span class="badge ${p.data_stale ? "stale" : "ok"}">${p.data_stale ? "stale" : "live"}</span><br><span class="text-xs muted">${ICU.fmtTime(p.last_data_at)}</span>`
+                : `<span class="badge offline">no data</span>`}</td>
+              <td>${ICU.riskBadge(p.risk_category)}</td>
+              <td>${p.critical_alert_count ? `<span class="badge critical">${p.critical_alert_count} crit</span>` :
+                  p.active_alert_count ? `<span class="badge moderate">${p.active_alert_count}</span>` : `<span class="badge low">0</span>`}</td>
+              <td><i data-lucide="chevron-right" class="muted"></i></td>
+            </tr>`).join("") || `<tr><td colspan="7" class="center muted">No patients assigned to you yet — ask an administrator to assign patients.</td></tr>`}
+          </tbody>
+        </table>
+      </div>
+    </div>`;
+  ICU.icons();
+}
+
+function alertCard(a) {
+  return `<div class="alert-item ${a.severity}">
+    <div class="head">
+      <span class="title">${ICU.esc(a.title)}</span>
+      ${ICU.sevBadge(a.severity)}
+      ${ICU.simBadge(a.is_simulated)}
+    </div>
+    <div class="msg">${ICU.esc(a.message).slice(0, 240)}</div>
+    <div class="foot"><span>${ICU.fmtTime(a.created_at)}</span><span class="badge neutral">${ICU.esc(a.status)}</span></div>
+  </div>`;
+}
+
+async function renderPatient(me) {
+  const id = me.user.id;
+  const [summary, live] = await Promise.all([
+    ICU.get(`/patients/${id}/summary`),
+    ICU.get(`/live/${id}`),
+  ]);
+  const r = live.reading || {};
+  const risk = live.risk || {};
+  root.innerHTML = `
+    <div class="grid grid-4 mb">
+      ${metric("Heart rate", `<span id="m-hr">${ICU.num(r.heart_rate)}</span><span class="unit">bpm</span>`, "hr",
+        `quality: ${r.signal_quality || "—"}`, "heart-pulse")}
+      ${metric("SpO₂ (estimate)", `<span id="m-spo2">${ICU.num(r.spo2)}</span><span class="unit">%</span>`, "spo2",
+        "MAX30102 estimate, not clinical-grade", "droplets")}
+      ${metric("Ambient temp", `<span id="m-t">${ICU.num(r.ambient_temperature, 1)}</span><span class="unit">°C</span>`, "temp",
+        "room air (DHT11) — not body temperature", "thermometer")}
+      ${metric("Ambient humidity", `<span id="m-h">${ICU.num(r.ambient_humidity)}</span><span class="unit">%</span>`, "hum",
+        "room humidity (DHT11)", "cloud-humidity")}
+    </div>
+
+    <div class="grid grid-3 mb">
+      <div class="card">
+        <div class="card-head"><h2><i data-lucide="brain-circuit"></i> Current prototype risk</h2>
+          ${ICU.riskBadge(risk.category)}</div>
+        <div class="ring-wrap">
+          <div class="ring ${risk.category}" style="--pct:${Math.round(risk.score || 0)}%">
+            <span>${Math.round(risk.score || 0)}</span>
+          </div>
+          <div>
+            <ul class="reasons">${(risk.reasons || []).map((x) => `<li>${ICU.esc(x)}</li>`).join("") || "<li>No assessment yet.</li>"}</ul>
+          </div>
+        </div>
+        <p class="text-xs muted mt">Explainable rule-based score (0–100). Not a trained AI model and not a diagnosis.</p>
+      </div>
+      <div class="card">
+        <div class="card-head"><h2><i data-lucide="cpu"></i> Device &amp; data status</h2></div>
+        <table class="data"><tbody>
+          <tr><td>Device</td><td class="right mono">${ICU.esc(summary.device.device_uid || "not assigned")}</td></tr>
+          <tr><td>Connection</td><td class="right"><span class="badge ${summary.device.online ? "online" : "offline"}">${summary.device.online ? "online" : "offline"}</span></td></tr>
+          <tr><td>Last seen</td><td class="right dim">${ICU.fmtTime(summary.device.last_seen_at)}</td></tr>
+          <tr><td>Last reading</td><td class="right dim" id="m-last">${ICU.fmtTime(r.received_at)}</td></tr>
+          <tr><td>Data freshness</td><td class="right" id="m-fresh"></td></tr>
+        </tbody></table>
+      </div>
+      <div class="card">
+        <div class="card-head"><h2><i data-lucide="bell"></i> My alerts (24h)</h2>
+          <a class="btn secondary sm" href="/alerts.html">History</a></div>
+        <p style="font-size:2rem;font-weight:700;margin:0;">${summary.alerts_24h}</p>
+        <p class="text-sm muted">alerts raised in the last 24 hours · ${summary.valid_readings_24h} valid readings received</p>
+        <a class="btn primary mt" href="/patient_dashboard.html"><i data-lucide="layout-dashboard"></i> Open my full dashboard</a>
+      </div>
+    </div>
+
+    <div class="card">
+      <div class="card-head"><h2><i data-lucide="line-chart"></i> Live heart-rate trend</h2>
+        <span class="conn-pill" id="conn-pill2"><span class="dot"></span>Connecting</span></div>
+      <div class="chart-box"><canvas id="hr-mini"></canvas></div>
+      <p class="text-xs muted">Gaps appear where data is missing or invalid — lines are never drawn through missing measurements.</p>
+    </div>`;
+
+  // mini chart
+  let chart = null;
+  try {
+    const readings = await ICU.get(`/patients/${id}/readings`, { limit: 60 });
+    const rows = (readings.readings || []).slice().reverse();
+    chart = ICU.makeChart(document.getElementById("hr-mini"),
+      rows.map((x) => ICU.fmtClock(x.received_at)),
+      rows.map((x) => (x.is_valid && x.heart_rate != null ? x.heart_rate : null)),
+      { color: ICU.CHART_COLORS.hr, unit: "bpm", label: "Heart rate", fill: true, min: 30 });
+  } catch { /* chart optional */ }
+
+  const conn = ICU.live(id, (data) => {
+    const rd = data.reading || {};
+    const set = (sel, val) => { const el = document.getElementById(sel); if (el) el.textContent = val; };
+    set("m-hr", ICU.num(rd.heart_rate));
+    set("m-spo2", ICU.num(rd.spo2));
+    set("m-t", ICU.num(rd.ambient_temperature, 1));
+    set("m-h", ICU.num(rd.ambient_humidity));
+    set("m-last", ICU.fmtTime(rd.received_at));
+    const fresh = document.getElementById("m-fresh");
+    if (fresh) fresh.innerHTML = data.stale
+      ? `<span class="badge stale">stale ${ICU.ageLabel(data.data_age_seconds)}</span>`
+      : `<span class="badge ok">fresh ${ICU.ageLabel(data.data_age_seconds)}</span>`;
+  });
+
+  ICU.icons();
+}
+
+(async function boot() {
+  try {
+    const me = await ICUShell.init({ title: "Overview", active: "/overview.html", roles: ["admin", "doctor", "patient"] });
+    if (!me) return;
+    if (me.user.role === "admin") await renderAdmin();
+    else if (me.user.role === "doctor") await renderDoctor();
+    else await renderPatient(me);
+  } catch (e) {
+    root.innerHTML = `<div class="state-box"><i data-lucide="circle-alert"></i>
+      <div>Could not load overview: ${ICU.esc(e.message)}</div></div>`;
+    ICU.icons();
+  }
+})();
+</script>
+</body>
+</html>

@@ -1,0 +1,162 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Analytics &amp; Reports — ICU Sentinel</title>
+  <link rel="stylesheet" href="/assets/css/styles.css">
+</head>
+<body>
+<div class="layout">
+  <div class="main" id="main">
+    <header class="topbar">
+      <button class="hamburger" id="hamburger" aria-label="Toggle navigation"><i data-lucide="menu"></i></button>
+      <h1 id="topbar-title">Analytics &amp; Reports</h1>
+      <div class="spacer"></div>
+      <button class="btn secondary sm" id="icu-theme" aria-label="Toggle theme"><i data-lucide="moon"></i></button>
+    </header>
+
+    <div class="content">
+      <div class="grid grid-4 mb" id="kpi-root"><div class="spinner"></div></div>
+
+      <div class="grid grid-2 mb">
+        <div class="card">
+          <div class="card-head"><h2><i data-lucide="pie-chart"></i> Risk breakdown (all patients)</h2></div>
+          <div class="chart-box short"><canvas id="risk-pie"></canvas></div>
+        </div>
+        <div class="card">
+          <div class="card-head"><h2><i data-lucide="siren"></i> Alert frequency (24 h)</h2></div>
+          <div id="freq-root"><div class="spinner"></div></div>
+        </div>
+      </div>
+
+      <div class="card mb">
+        <div class="card-head"><h2><i data-lucide="cpu"></i> Device uptime &amp; data quality (24 h)</h2></div>
+        <div class="table-wrap">
+          <table class="data">
+            <thead><tr><th>Device</th><th>Status</th><th>Readings (24h)</th><th>First</th><th>Last</th><th>Active span</th><th>Patient</th></tr></thead>
+            <tbody id="uptime-tbody"><tr><td colspan="7" class="center muted"><div class="spinner"></div></td></tr></tbody>
+          </table>
+        </div>
+      </div>
+
+      <div class="card">
+        <div class="card-head"><h2><i data-lucide="file-down"></i> Patient monitoring summary &amp; CSV export</h2></div>
+        <div class="filter-bar">
+          <label class="field" style="min-width:220px;">Patient
+            <select id="export-patient"></select></label>
+          <label class="field">Window (hours)
+            <select id="export-hours"><option>6</option><option selected>24</option><option>72</option><option>168</option></select>
+          </label>
+          <button class="btn secondary" id="summary-btn"><i data-lucide="file-text"></i> Build summary</button>
+          <a class="btn primary" id="export-btn" href="#"><i data-lucide="download"></i> Download CSV</a>
+        </div>
+        <div id="summary-root"></div>
+        <p class="text-xs muted mt">CSV contains the stored readings only — missing measurements stay missing;
+        nothing is interpolated. Simulated test readings are included but flagged with an <span class="mono">is_simulated</span> column.</p>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script src="/assets/js/vendor/lucide.min.js"></script>
+<script src="/assets/js/vendor/chart.umd.min.js"></script>
+<script src="/assets/js/core.js"></script>
+<script src="/assets/js/app.js"></script>
+<script>
+"use strict";
+let ME = null, pie = null;
+
+function metric(label, value, meta, icon) {
+  return `<div class="metric"><div class="label"><i data-lucide="${icon}"></i> ${label}</div>
+    <div class="value">${value}</div><div class="meta">${meta || ""}</div></div>`;
+}
+
+async function loadPatientsForExport() {
+  let list = [];
+  try {
+    if (ME.user.role === "patient") list = [{ user_id: ME.user.id, full_name: "My data" }];
+    else list = await ICU.get("/doctors/patients");
+  } catch { list = ME.user.role === "patient" ? [{ user_id: ME.user.id, full_name: "My data" }] : []; }
+  document.getElementById("export-patient").innerHTML =
+    list.map((p) => `<option value="${p.user_id}">${ICU.esc(p.full_name)} (#${p.user_id})</option>`).join("")
+    || `<option value="">(none)</option>`;
+}
+
+async function load() {
+  const [summary, freq, uptime] = await Promise.all([
+    ICU.get("/analytics/summary"),
+    ICU.get("/analytics/alerts-frequency", { hours: 24 }),
+    ICU.get("/analytics/device-uptime", { hours: 24 }),
+  ]);
+
+  document.getElementById("kpi-root").innerHTML = `
+    ${metric("Total readings", summary.readings_total.toLocaleString(), `${summary.readings_last_hour} in the last hour`, "database")}
+    ${metric("Active alerts", summary.active_alerts, `${summary.critical_alerts} critical`, "siren")}
+    ${metric("Devices online", `${summary.devices_online}/${summary.total_devices}`, "checked in recently", "cpu")}
+    ${metric("Patients monitored", summary.total_patients, `${summary.total_doctors} doctors`, "users")}`;
+
+  if (pie) ICU.destroyChart(pie);
+  const cats = Object.keys(summary.risk_breakdown);
+  const vals = cats.map((c) => summary.risk_breakdown[c]);
+  pie = new Chart(document.getElementById("risk-pie").getContext("2d"), {
+    type: "doughnut",
+    data: {
+      labels: cats.map((c) => c.charAt(0).toUpperCase() + c.slice(1)),
+      datasets: [{ data: vals, backgroundColor: ["#16a34a", "#d97706", "#ea580c", "#dc2626"], borderWidth: 0 }],
+    },
+    options: { responsive: true, maintainAspectRatio: false, plugins: { legend: { position: "right" } } },
+  });
+
+  document.getElementById("freq-root").innerHTML = freq.breakdown.length
+    ? `<div class="table-wrap"><table class="data"><thead><tr><th>Category</th><th>Severity</th><th>Count</th></tr></thead>
+      <tbody>${freq.breakdown.map((f) => `<tr><td>${ICU.esc(f.category)}</td><td>${ICU.sevBadge(f.severity)}</td>
+        <td class="num">${f.count}</td></tr>`).join("")}</tbody></table></div>`
+    : `<div class="state-box" style="padding:1rem;">No alerts in the last 24 hours</div>`;
+
+  document.getElementById("uptime-tbody").innerHTML = uptime.devices.map((d) => `<tr>
+    <td class="mono">${ICU.esc(d.device_uid)}<br><span class="text-xs muted">${ICU.esc(d.name)}</span></td>
+    <td><span class="badge ${d.is_online ? "online" : "offline"}">${d.is_online ? "online" : "offline"}</span></td>
+    <td class="num">${d.readings_in_window}</td>
+    <td class="dim">${ICU.fmtTime(d.first_reading)}</td>
+    <td class="dim">${ICU.fmtTime(d.last_reading)}</td>
+    <td class="num">${d.active_span_minutes} min</td>
+    <td>${d.assigned_patient_user_id ? "#" + d.assigned_patient_user_id : `<span class="muted">unassigned</span>`}</td>
+  </tr>`).join("") || `<tr><td colspan="7" class="center muted">No devices</td></tr>`;
+  ICU.icons();
+}
+
+(async function boot() {
+  ME = await ICUShell.init({ title: "Analytics & Reports", active: "/analytics.html", roles: ["admin", "doctor", "patient"] });
+  if (!ME) return;
+  await loadPatientsForExport();
+  await load();
+
+  document.getElementById("export-btn").addEventListener("click", (e) => {
+    e.preventDefault();
+    const pid = document.getElementById("export-patient").value;
+    if (!pid) { ICU.toast("Select a patient", "warn"); return; }
+    window.open(`/api/v1/analytics/export?patient_id=${pid}`, "_blank");
+  });
+
+  document.getElementById("summary-btn").addEventListener("click", async () => {
+    const pid = document.getElementById("export-patient").value;
+    const hours = document.getElementById("export-hours").value;
+    if (!pid) { ICU.toast("Select a patient", "warn"); return; }
+    try {
+      const s = await ICU.get("/analytics/monitoring-summary", { patient_id: pid, hours });
+      document.getElementById("summary-root").innerHTML = `
+        <div class="grid grid-4 mt">
+          ${metric("Real readings", s.real_readings, `${s.invalid_or_unusable} invalid/unusable`, "activity")}
+          ${metric("Heart rate avg", s.hr_avg != null ? s.hr_avg + " bpm" : "—", s.hr_avg != null ? `min ${s.hr_min} · max ${s.hr_max}` : "no valid data", "heart-pulse")}
+          ${metric("SpO₂ avg", s.spo2_avg != null ? s.spo2_avg + "%" : "—", s.spo2_min != null ? `min ${s.spo2_min}%` : "no valid data", "droplets")}
+          ${metric("Alerts in window", s.alerts_in_window, `${s.critical_alerts} critical`, "siren")}
+        </div>
+        <p class="text-xs muted mt">${ICU.esc(s.note)} · Simulated readings excluded from these statistics.</p>`;
+      ICU.icons();
+    } catch (e) { ICU.toast(e.message, "error"); }
+  });
+})();
+</script>
+</body>
+</html>

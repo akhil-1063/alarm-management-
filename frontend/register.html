@@ -1,0 +1,181 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Register — ICU Sentinel</title>
+  <link rel="stylesheet" href="/assets/css/styles.css">
+</head>
+<body class="auth-body">
+
+  <div class="auth-card wide">
+    <div class="auth-logo">
+      <div class="logo"><i data-lucide="user-plus"></i></div>
+      <div>
+        <div class="brand-title" style="color:var(--text);font-size:1.05rem;">Create an account</div>
+        <div class="brand-sub" style="color:var(--teal-600);">ICU Sentinel</div>
+      </div>
+    </div>
+
+    <div class="tabs" role="tablist">
+      <button type="button" class="active" data-tab="patient" role="tab">Patient registration</button>
+      <button type="button" data-tab="doctor" role="tab">Doctor registration</button>
+    </div>
+
+    <div id="reg-error" class="banner error hidden"><i data-lucide="circle-x"></i><span id="reg-error-text"></span></div>
+    <div id="reg-success" class="banner success hidden"><i data-lucide="circle-check"></i><span id="reg-success-text"></span></div>
+
+    <!-- ============ PATIENT ============ -->
+    <form id="patient-form" class="tab-panel active" data-panel="patient">
+      <div class="form-row">
+        <label class="field">Full name <span class="req">*</span>
+          <input type="text" id="p-name" required maxlength="255" placeholder="Jane Doe">
+        </label>
+        <label class="field">Email <span class="req">*</span>
+          <input type="email" id="p-email" required placeholder="jane@example.org"
+                 pattern="[^@\s]+@[^@\s]+\.[^@\s]+" title="Enter a full email address, e.g. jane@example.org">
+        </label>
+      </div>
+      <div class="form-row">
+        <label class="field">Date of birth
+          <input type="date" id="p-dob">
+        </label>
+        <label class="field">Sex
+          <select id="p-sex">
+            <option value="">Prefer not to say</option>
+            <option>Female</option>
+            <option>Male</option>
+            <option>Other</option>
+          </select>
+        </label>
+      </div>
+      <div class="form-row">
+        <label class="field">Ward
+          <input type="text" id="p-ward" maxlength="64" placeholder="ICU-A">
+        </label>
+        <label class="field">Bed label
+          <input type="text" id="p-bed" maxlength="64" placeholder="Bed 4">
+        </label>
+      </div>
+      <label class="field">Password <span class="req">*</span>
+        <input type="password" id="p-pass" required minlength="8" autocomplete="new-password" placeholder="At least 8 characters">
+      </label>
+      <label class="checkbox-line">
+        <input type="checkbox" id="p-ack">
+        I understand this is a research/educational prototype and not a substitute for medical care.
+      </label>
+      <button class="btn primary w-full" type="submit" id="p-btn"><i data-lucide="user-plus"></i> Register as patient</button>
+    </form>
+
+    <!-- ============ DOCTOR ============ -->
+    <form id="doctor-form" class="tab-panel" data-panel="doctor">
+      <div class="banner warn" style="margin-bottom:.9rem;">
+        <i data-lucide="shield-alert"></i>
+        <div class="text-sm">
+          Doctor accounts are <strong>inactive until an administrator approves them</strong>. Registering here
+          does <strong>not</strong> grant access to any patient data. The administrator must approve your account
+          and assign patients to you.
+        </div>
+      </div>
+      <div class="form-row">
+        <label class="field">Full name <span class="req">*</span>
+          <input type="text" id="d-name" required maxlength="255" placeholder="Dr John Smith">
+        </label>
+        <label class="field">Email <span class="req">*</span>
+          <input type="email" id="d-email" required placeholder="doctor@example.org"
+                 pattern="[^@\s]+@[^@\s]+\.[^@\s]+" title="Enter a full email address, e.g. doctor@example.org">
+        </label>
+      </div>
+      <div class="form-row">
+        <label class="field">Specialty
+          <input type="text" id="d-specialty" maxlength="128" placeholder="Critical Care">
+        </label>
+        <label class="field">License number
+          <input type="text" id="d-license" maxlength="64" placeholder="MC-12345">
+        </label>
+      </div>
+      <label class="field">Password <span class="req">*</span>
+        <input type="password" id="d-pass" required minlength="8" autocomplete="new-password" placeholder="At least 8 characters">
+      </label>
+      <button class="btn primary w-full" type="submit" id="d-btn"><i data-lucide="stethoscope"></i> Request doctor account</button>
+    </form>
+
+    <div class="auth-foot">
+      Already registered? <a href="/login.html">Sign in</a> · <a href="/">Home</a>
+    </div>
+  </div>
+
+<script src="/assets/js/vendor/lucide.min.js"></script>
+<script src="/assets/js/core.js"></script>
+<script>
+"use strict";
+document.querySelectorAll(".tabs button").forEach((btn) => {
+  btn.addEventListener("click", () => {
+    document.querySelectorAll(".tabs button").forEach((b) => b.classList.remove("active"));
+    btn.classList.add("active");
+    document.querySelectorAll(".tab-panel").forEach((p) =>
+      p.classList.toggle("active", p.dataset.panel === btn.dataset.tab));
+    hide();
+  });
+});
+
+const errBox = document.getElementById("reg-error");
+const okBox = document.getElementById("reg-success");
+function showErr(m) { document.getElementById("reg-error-text").textContent = m; errBox.classList.remove("hidden"); okBox.classList.add("hidden"); ICU.icons(); }
+function showOk(m) { document.getElementById("reg-success-text").textContent = m; okBox.classList.remove("hidden"); errBox.classList.add("hidden"); ICU.icons(); }
+function hide() { errBox.classList.add("hidden"); okBox.classList.add("hidden"); }
+
+document.getElementById("patient-form").addEventListener("submit", async (e) => {
+  e.preventDefault();
+  hide();
+  const body = {
+    email: document.getElementById("p-email").value.trim(),
+    password: document.getElementById("p-pass").value,
+    full_name: document.getElementById("p-name").value.trim(),
+    sex: document.getElementById("p-sex").value || null,
+    ward: document.getElementById("p-ward").value.trim() || null,
+    bed_label: document.getElementById("p-bed").value.trim() || null,
+  };
+  const dob = document.getElementById("p-dob").value;
+  if (dob) body.date_of_birth = dob + "T00:00:00";
+  if (!body.email || !body.full_name || body.password.length < 8) {
+    showErr("Name, email and a password of at least 8 characters are required."); return;
+  }
+  if (!document.getElementById("p-ack").checked) {
+    showErr("Please acknowledge the prototype notice before registering."); return;
+  }
+  const btn = document.getElementById("p-btn");
+  btn.disabled = true;
+  try {
+    await ICU.post("/auth/register/patient", body);
+    showOk("Patient account created. You can sign in now.");
+    setTimeout(() => (window.location.href = "/login.html"), 1200);
+  } catch (err) { showErr(err.message); btn.disabled = false; }
+});
+
+document.getElementById("doctor-form").addEventListener("submit", async (e) => {
+  e.preventDefault();
+  hide();
+  const body = {
+    email: document.getElementById("d-email").value.trim(),
+    password: document.getElementById("d-pass").value,
+    full_name: document.getElementById("d-name").value.trim(),
+    specialty: document.getElementById("d-specialty").value.trim() || null,
+    license_number: document.getElementById("d-license").value.trim() || null,
+  };
+  if (!body.email || !body.full_name || body.password.length < 8) {
+    showErr("Name, email and a password of at least 8 characters are required."); return;
+  }
+  const btn = document.getElementById("d-btn");
+  btn.disabled = true;
+  try {
+    await ICU.post("/auth/register/doctor", body);
+    showOk("Doctor registration submitted. An administrator must approve your account before you can sign in.");
+    btn.disabled = false;
+  } catch (err) { showErr(err.message); btn.disabled = false; }
+});
+
+ICU.icons();
+</script>
+</body>
+</html>

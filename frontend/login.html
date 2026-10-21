@@ -1,0 +1,161 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Sign in — ICU Sentinel</title>
+  <link rel="stylesheet" href="/assets/css/styles.css">
+</head>
+<body class="auth-body">
+
+  <div class="auth-card">
+    <div class="auth-logo">
+      <div class="logo"><i data-lucide="heart-pulse"></i></div>
+      <div>
+        <div class="brand-title" style="color:var(--text);font-size:1.05rem;">ICU Sentinel</div>
+        <div class="brand-sub" style="color:var(--teal-600);">AI Early Warning System</div>
+      </div>
+    </div>
+
+    <div class="tabs" role="tablist">
+      <button type="button" class="active" data-tab="patient" role="tab">Patient login</button>
+      <button type="button" data-tab="staff" role="tab">Doctor / Staff login</button>
+    </div>
+
+    <div id="login-error" class="banner error hidden"><i data-lucide="circle-x"></i><span id="login-error-text"></span></div>
+
+    <form id="login-form">
+      <label class="field">Email address <span class="req">*</span>
+        <input type="email" id="email" autocomplete="username" required placeholder="you@example.org"
+               pattern="[^@\s]+@[^@\s]+\.[^@\s]+" title="Enter a full email address, e.g. admin@example.org">
+      </label>
+      <label class="field">Password <span class="req">*</span>
+        <input type="password" id="password" autocomplete="current-password" required placeholder="••••••••">
+      </label>
+      <button class="btn primary w-full" type="submit" id="login-btn">
+        <i data-lucide="log-in"></i> Sign in
+      </button>
+    </form>
+
+    <div class="auth-links">
+      <a href="/register.html">Create patient account</a>
+      <a href="#" id="forgot-link">Forgot password?</a>
+    </div>
+
+    <div id="forgot-panel" class="hidden mt">
+      <div class="card" style="background:var(--slate-50);">
+        <h3>Local password reset</h3>
+        <p class="text-sm muted">For this local prototype, reset codes are generated server-side. In debug mode the code is shown to you; in a real deployment it would be emailed.</p>
+        <label class="field">Email
+          <input type="email" id="forgot-email" placeholder="you@example.org">
+        </label>
+        <button class="btn secondary sm" type="button" id="forgot-request">Request reset code</button>
+        <div id="forgot-code-row" class="hidden mt">
+          <label class="field">Reset code
+            <input type="text" id="forgot-code" placeholder="paste code">
+          </label>
+          <label class="field">New password (min 8 chars)
+            <input type="password" id="forgot-newpass" autocomplete="new-password">
+          </label>
+          <button class="btn sm" type="button" id="forgot-complete">Set new password</button>
+        </div>
+      </div>
+    </div>
+
+    <div class="banner info mt" style="margin-bottom:0;">
+      <i data-lucide="info"></i>
+      <div class="text-sm">
+        Doctor accounts require administrator approval after registration.
+        This prototype is not a substitute for clinical assessment or emergency care.
+      </div>
+    </div>
+
+    <div class="auth-foot">
+      <a href="/">← Back to home</a>
+    </div>
+  </div>
+
+<script src="/assets/js/vendor/lucide.min.js"></script>
+<script src="/assets/js/core.js"></script>
+<script>
+"use strict";
+
+// Tab switching (visual only — both use the same credential check server-side)
+document.querySelectorAll(".tabs button").forEach((btn) => {
+  btn.addEventListener("click", () => {
+    document.querySelectorAll(".tabs button").forEach((b) => b.classList.remove("active"));
+    btn.classList.add("active");
+    const staff = btn.dataset.tab === "staff";
+    ICU.toast(staff ? "Staff login: doctor accounts must be approved by an administrator." : "Patient login selected.", "info", 2600);
+  });
+});
+
+const errBox = document.getElementById("login-error");
+const errText = document.getElementById("login-error-text");
+function showError(msg) {
+  errText.textContent = msg;
+  errBox.classList.remove("hidden");
+  ICU.icons();
+}
+function hideError() { errBox.classList.add("hidden"); }
+
+document.getElementById("login-form").addEventListener("submit", async (e) => {
+  e.preventDefault();
+  hideError();
+  const email = document.getElementById("email").value.trim();
+  const password = document.getElementById("password").value;
+  if (!email || !password) { showError("Please enter your email and password."); return; }
+  const btn = document.getElementById("login-btn");
+  btn.disabled = true;
+  try {
+    const me = await ICU.post("/auth/login", { email, password });
+    const next = new URLSearchParams(location.search).get("next");
+    const role = me.user.role;
+    let target = next;
+    if (!target) {
+      target = role === "admin" ? "/overview.html"
+        : role === "doctor" ? "/overview.html"
+        : "/patient_dashboard.html";
+    }
+    ICU.toast("Welcome back, " + me.user.full_name.split(" ")[0] + "!", "success");
+    window.location.href = target;
+  } catch (err) {
+    showError(err.message || "Login failed");
+    btn.disabled = false;
+  }
+});
+
+// Forgot-password workflow
+document.getElementById("forgot-link").addEventListener("click", (e) => {
+  e.preventDefault();
+  document.getElementById("forgot-panel").classList.toggle("hidden");
+});
+document.getElementById("forgot-request").addEventListener("click", async () => {
+  const email = document.getElementById("forgot-email").value.trim();
+  if (!email) { showError("Enter your email first."); return; }
+  try {
+    const res = await ICU.post("/auth/forgot-password", { email });
+    document.getElementById("forgot-code-row").classList.remove("hidden");
+    if (res.debug_reset_code) {
+      document.getElementById("forgot-code").value = res.debug_reset_code;
+      ICU.toast("Debug mode: reset code auto-filled (normally emailed).", "warn");
+    } else {
+      ICU.toast(res.message || "If the account exists, a reset code was generated.", "info");
+    }
+  } catch (err) { showError(err.message); }
+});
+document.getElementById("forgot-complete").addEventListener("click", async () => {
+  const email = document.getElementById("forgot-email").value.trim();
+  const code = document.getElementById("forgot-code").value.trim();
+  const new_password = document.getElementById("forgot-newpass").value;
+  try {
+    await ICU.post("/auth/reset-password", { email, code, new_password });
+    ICU.toast("Password updated — you can sign in now.", "success");
+    document.getElementById("forgot-panel").classList.add("hidden");
+  } catch (err) { showError(err.message); }
+});
+
+ICU.icons();
+</script>
+</body>
+</html>

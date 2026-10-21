@@ -1,0 +1,184 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Patients — ICU Sentinel</title>
+  <link rel="stylesheet" href="/assets/css/styles.css">
+</head>
+<body>
+<div class="layout">
+  <div class="main" id="main">
+    <header class="topbar">
+      <button class="hamburger" id="hamburger" aria-label="Toggle navigation"><i data-lucide="menu"></i></button>
+      <h1 id="topbar-title">Patients</h1>
+      <div class="spacer"></div>
+      <button class="btn secondary sm" id="icu-theme" aria-label="Toggle theme"><i data-lucide="moon"></i></button>
+    </header>
+
+    <div class="content">
+      <div class="card mb">
+        <div class="card-head">
+          <div>
+            <h2><i data-lucide="users"></i> Assigned patients</h2>
+            <p class="card-sub" id="scope-note">Loading…</p>
+          </div>
+          <div class="row">
+            <button class="btn secondary sm" id="refresh-btn"><i data-lucide="refresh-cw"></i> Refresh</button>
+          </div>
+        </div>
+        <div class="filter-bar">
+          <label class="field" style="min-width:220px;">Search
+            <input type="search" id="search" placeholder="Name or email…">
+          </label>
+          <label class="field">Priority
+            <select id="risk-filter">
+              <option value="">All</option>
+              <option value="critical">Critical</option>
+              <option value="high">High</option>
+              <option value="moderate">Medium</option>
+              <option value="low">Low</option>
+              <option value="insufficient_data">Insufficient Data</option>
+            </select>
+          </label>
+          <label class="field">Data status
+            <select id="stale-filter">
+              <option value="">All</option>
+              <option value="live">Live data</option>
+              <option value="stale">Stale / missing</option>
+              <option value="offline">Device offline</option>
+            </select>
+          </label>
+          <label class="field">Sort by
+            <select id="sort-filter">
+              <option value="priority">Priority (highest first)</option>
+              <option value="name">Name (A–Z)</option>
+              <option value="freshness">Data freshness</option>
+            </select>
+          </label>
+        </div>
+        <div class="table-wrap">
+          <table class="data" id="patient-table">
+            <thead>
+              <tr>
+                <th>Patient ID</th><th>Name</th><th>Device</th>
+                <th>HR (bpm)</th><th>SpO₂ (%)</th><th>Ambient °C</th><th>Humidity %</th>
+                <th>SIMULATED BP</th>
+                <th>Last data</th><th>Quality</th><th>Priority</th><th>Alerts</th><th></th>
+              </tr>
+            </thead>
+            <tbody id="patient-tbody"><tr><td colspan="13" class="center muted"><div class="spinner"></div></td></tr></tbody>
+          </table>
+        </div>
+        <p class="text-xs muted mt">
+          You only see patients assigned to you (server-side enforced).
+          Ambient readings come from the DHT11 room sensor and are <strong>not</strong> patient body temperature.
+        </p>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script src="/assets/js/vendor/lucide.min.js"></script>
+<script src="/assets/js/core.js"></script>
+<script src="/assets/js/app.js"></script>
+<script>
+"use strict";
+let ALL = [];
+
+function applyFilters() {
+  const q = document.getElementById("search").value.trim().toLowerCase();
+  const risk = document.getElementById("risk-filter").value;
+  const stale = document.getElementById("stale-filter").value;
+  const sort = document.getElementById("sort-filter") ? document.getElementById("sort-filter").value : "priority";
+  let rows = ALL.filter((p) => {
+    if (q && !(p.full_name.toLowerCase().includes(q) || p.email.toLowerCase().includes(q))) return false;
+    const prio = p.priority || p.risk_category;
+    if (risk && prio !== risk) return false;
+    if (stale === "live" && (p.data_stale || !p.last_data_at)) return false;
+    if (stale === "stale" && !(p.data_stale || !p.last_data_at)) return false;
+    if (stale === "offline" && p.device_online) return false;
+    return true;
+  });
+  const order = { critical: 4, high: 3, moderate: 2, medium: 2, low: 1, insufficient_data: 5 }; // insufficient data needs attention
+  rows.sort((a, b) => {
+    if (sort === "name") return (a.full_name || "").localeCompare(b.full_name || "");
+    if (sort === "freshness") {
+      const ta = a.last_data_at ? new Date(a.last_data_at).getTime() : 0;
+      const tb = b.last_data_at ? new Date(b.last_data_at).getTime() : 0;
+      return tb - ta;
+    }
+    const pa = order[a.priority || a.risk_category] || 0;
+    const pb = order[b.priority || b.risk_category] || 0;
+    return pb - pa;
+  });
+  renderRows(rows);
+}
+
+function renderRows(rows) {
+  const tbody = document.getElementById("patient-tbody");
+  if (!rows.length) {
+    tbody.innerHTML = `<tr><td colspan="13" class="center muted" style="padding:2rem;">
+      No patients match the current filters.</td></tr>`;
+    return;
+  }
+  tbody.innerHTML = rows.map((p) => {
+    const prio = p.priority || p.risk_category;
+    const prioLabel = p.priority_label || prio;
+    const bp = (p.latest_systolic_bp != null || p.latest_diastolic_bp != null)
+      ? `${p.latest_systolic_bp != null ? p.latest_systolic_bp : "—"}/${p.latest_diastolic_bp != null ? p.latest_diastolic_bp : "—"}`
+      : "—";
+    return `
+    <tr class="clickable" data-id="${p.user_id}" tabindex="0"
+        onclick="location.href='/patient_monitor.html?id=${p.user_id}'"
+        onkeydown="if(event.key==='Enter')location.href='/patient_monitor.html?id=${p.user_id}'">
+      <td class="mono">#${p.user_id}</td>
+      <td><strong>${ICU.esc(p.full_name)}</strong><br><span class="text-xs muted">${ICU.esc(p.ward || "")} ${ICU.esc(p.bed_label || "")}</span></td>
+      <td class="mono">${ICU.esc(p.assigned_device_uid || "—")}
+        <br><span class="badge ${p.device_online ? "online" : (p.assigned_device_uid ? "offline" : "neutral")}">
+          ${p.assigned_device_uid ? (p.device_online ? "online" : "offline") : "unassigned"}</span></td>
+      <td class="num">${p.latest_hr != null ? ICU.num(p.latest_hr) : "—"}</td>
+      <td class="num">${p.latest_spo2 != null ? ICU.num(p.latest_spo2) : "—"}</td>
+      <td class="num">${p.latest_ambient_temp != null ? ICU.num(p.latest_ambient_temp, 1) : "—"}</td>
+      <td class="num">${p.latest_humidity != null ? ICU.num(p.latest_humidity) : "—"}</td>
+      <td class="num">${bp} ${p.bp_simulated ? '<span class="badge simulated">SIM</span>' : ""}</td>
+      <td class="dim">${p.last_data_at ? ICU.fmtTime(p.last_data_at) : "never"}
+        ${p.last_data_at ? `<br><span class="badge ${p.data_stale ? "stale" : "ok"}">${p.data_stale ? "stale" : "fresh"}</span>` : ""}</td>
+      <td>${ICU.qualityBadge(p.signal_quality)}</td>
+      <td>${prio === "insufficient_data" ? '<span class="badge neutral">Insufficient Data</span>' : ICU.riskBadge(prio)}</td>
+      <td>${p.critical_alert_count ? `<span class="badge critical">${p.critical_alert_count} crit</span>`
+          : p.active_alert_count ? `<span class="badge moderate">${p.active_alert_count}</span>`
+          : `<span class="badge low">0</span>`}</td>
+      <td><i data-lucide="chevron-right" class="muted"></i></td>
+    </tr>`;
+  }).join("");
+  ICU.icons();
+}
+
+async function load() {
+  const tbody = document.getElementById("patient-tbody");
+  try {
+    ALL = await ICU.get("/doctors/patients");
+    const note = document.getElementById("scope-note");
+    note.textContent = `${ALL.length} patient${ALL.length === 1 ? "" : "s"} visible to you. Click a row to open live monitoring.`;
+    applyFilters();
+  } catch (e) {
+    tbody.innerHTML = `<tr><td colspan="12" class="center" style="color:var(--red-600);padding:1.5rem;">
+      Failed to load patients: ${ICU.esc(e.message)}</td></tr>`;
+  }
+}
+
+(async function boot() {
+  const me = await ICUShell.init({ title: "Patients", active: "/doctor_dashboard.html", roles: ["admin", "doctor"] });
+  if (!me) return;
+  document.getElementById("search").addEventListener("input", applyFilters);
+  document.getElementById("risk-filter").addEventListener("change", applyFilters);
+  document.getElementById("stale-filter").addEventListener("change", applyFilters);
+  if (document.getElementById("sort-filter")) document.getElementById("sort-filter").addEventListener("change", applyFilters);
+  document.getElementById("refresh-btn").addEventListener("click", load);
+  await load();
+  setInterval(load, 15000);
+})();
+</script>
+</body>
+</html>

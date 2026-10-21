@@ -1,0 +1,78 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Privacy &amp; Medical Safety — ICU Sentinel</title>
+  <link rel="stylesheet" href="/assets/css/styles.css">
+</head>
+<body>
+<div style="max-width:860px;margin:0 auto;padding:2rem 1.2rem 4rem;">
+  <div class="row between mb">
+    <div class="row tight">
+      <div style="width:38px;height:38px;border-radius:10px;background:linear-gradient(135deg,#14b8a6,#2563eb);display:grid;place-items:center;">
+        <i data-lucide="heart-pulse" style="color:#fff;"></i>
+      </div>
+      <h1 style="margin:0;">Privacy &amp; Medical-Safety Information</h1>
+    </div>
+    <a class="btn secondary sm" href="/">← Home</a>
+  </div>
+
+  <div class="banner warn">
+    <i data-lucide="triangle-alert"></i>
+    <div><strong>ICU Sentinel is a research and educational prototype.</strong> It is not a clinically validated
+    diagnostic or life-support system, and it is not certified as a medical device under any regulation
+    (EU MDR, FDA, CDSCO or otherwise).</div>
+  </div>
+
+  <div class="card mb">
+    <h2><i data-lucide="shield-alert"></i> Medical safety</h2>
+    <ul class="reasons">
+      <li><strong>Not a diagnosis.</strong> Heart rate and SpO₂ estimates alone cannot diagnose cardiac arrest,
+      heart attack, stroke, sepsis or any other condition.</li>
+      <li><strong>Not emergency equipment.</strong> In-application alerts do not replace hospital alarm systems,
+      telemetry, pulse oximeters with clinical certification, or supervised monitoring.</li>
+      <li><strong>Ambient ≠ body temperature.</strong> The DHT11 measures room air. It is never presented as
+      patient body temperature and must not be used as a fever measurement.</li>
+      <li><strong>SpO₂ is an estimate.</strong> MAX30102-derived SpO₂ is affected by motion, perfusion and
+      sensor fit. Values must be confirmed with clinical-grade equipment.</li>
+      <li><strong>Risk categories are software priorities</strong> produced by an explainable rule engine
+      (thresholds, persistence, hysteresis). They are not clinically validated classifications, not a trained
+      machine-learning model, and a “Low” priority is never proof that a patient is safe.</li>
+      <li><strong>Stroke warnings</strong> arise only from structured clinician symptom entry. The sensors
+      cannot detect stroke and cannot confirm or rule it out.</li>
+    </ul>
+  </div>
+
+  <div class="card mb">
+    <h2><i data-lucide="lock"></i> Privacy &amp; data protection</h2>
+    <ul class="reasons">
+      <li>All data is stored locally in an SQLite database on the machine running the backend. No cloud services
+      are required or used for core functionality.</li>
+      <li>Passwords are stored only as salted hashes (PBKDF2-SHA256, 200k iterations). Device credentials are
+      unique per device and never returned in ordinary dashboard responses or logged.</li>
+      <li>Access is enforced server-side: patients can only read their own records, doctors only assigned
+      patients, and every access-relevant action is written to an audit log.</li>
+      <li>This local deployment is <strong>not automatically compliant</strong> with HIPAA, GDPR, DPDP Act or
+      other healthcare-privacy requirements. Do not load real patient data without appropriate authorisation,
+      consent, access controls and institutional approval.</li>
+      <li>Cookies used for sessions are HttpOnly, SameSite=Lax, and expire with the configured session window.</li>
+    </ul>
+  </div>
+
+  <div class="card">
+    <h2><i data-lucide="flask-conical"></i> Simulated test data</h2>
+    <p class="text-sm">The developer test panel generates clearly labelled simulated readings
+    (<span class="mono">is_simulated=True</span>). They appear with a purple “SIMULATED” badge, are excluded from
+    real-measurement statistics by default, are separable in CSV exports, and can be deleted without touching
+    real sensor data. Test data is never silently mixed into real patient history.</p>
+  </div>
+
+  <p class="center muted mt"><a href="/">← Back to home</a></p>
+</div>
+
+<script src="/assets/js/vendor/lucide.min.js"></script>
+<script src="/assets/js/core.js"></script>
+<script>ICU.icons();</script>
+</body>
+</html>

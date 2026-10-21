@@ -1,0 +1,179 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Settings — ICU Sentinel</title>
+  <link rel="stylesheet" href="/assets/css/styles.css">
+</head>
+<body>
+<div class="layout">
+  <div class="main" id="main">
+    <header class="topbar">
+      <button class="hamburger" id="hamburger" aria-label="Toggle navigation"><i data-lucide="menu"></i></button>
+      <h1 id="topbar-title">Settings</h1>
+      <div class="spacer"></div>
+      <button class="btn secondary sm" id="icu-theme" aria-label="Toggle theme"><i data-lucide="moon"></i></button>
+    </header>
+
+    <div class="content">
+      <div class="grid grid-2">
+        <div class="card">
+          <div class="card-head"><h2><i data-lucide="user"></i> My account</h2></div>
+          <table class="data"><tbody id="account-table"></tbody></table>
+          <div class="form-actions">
+            <button class="btn secondary" id="logout-btn"><i data-lucide="log-out"></i> Sign out</button>
+            <button class="btn secondary" id="theme-btn"><i data-lucide="moon"></i> Toggle dark mode</button>
+          </div>
+        </div>
+
+        <div class="card">
+          <div class="card-head"><h2><i data-lucide="sliders-horizontal"></i> Active risk thresholds</h2></div>
+          <p class="text-sm muted">Current effective thresholds (defaults with administrator overrides applied at
+          assessment time).</p>
+          <table class="data"><tbody id="thr-table"><tr><td colspan="2" class="center muted"><div class="spinner"></div></td></tr></tbody></table>
+          <p class="text-xs muted mt" id="thr-note"></p>
+        </div>
+      </div>
+
+      <div class="card mt">
+        <div class="card-head"><h2><i data-lucide="wifi"></i> ESP8266 Direct Connection</h2>
+          <span class="badge neutral" id="esp-set-badge">Not configured</span></div>
+        <div class="row" style="align-items:flex-end;flex-wrap:wrap;gap:.6rem;">
+          <label class="field" style="min-width:220px;">Select device
+            <select id="esp-set-device"></select>
+          </label>
+          <label class="field" style="min-width:240px;">ESP8266 IP / endpoint
+            <input type="text" id="esp-set-ip" placeholder="10.92.127.134">
+          </label>
+          <button class="btn sm" id="esp-set-save"><i data-lucide="save"></i> Save &amp; Enable</button>
+          <button class="btn secondary sm" id="esp-set-connect"><i data-lucide="plug-zap"></i> Connect</button>
+          <button class="btn secondary sm" id="esp-set-disconnect"><i data-lucide="power-off"></i> Disconnect</button>
+        </div>
+        <div class="row mt" style="flex-wrap:wrap;gap:1rem;">
+          <div><strong>Status:</strong> <span id="esp-set-status">—</span></div>
+          <div><strong>Last update:</strong> <span id="esp-set-last">—</span></div>
+        </div>
+        <div class="grid grid-4 mt">
+          <div class="metric"><div class="label">HR</div><div class="value"><span id="esp-set-hr">—</span><span class="unit">bpm</span></div></div>
+          <div class="metric"><div class="label">SpO₂</div><div class="value"><span id="esp-set-spo2">—</span><span class="unit">%</span></div></div>
+          <div class="metric"><div class="label">Temp / Hum</div><div class="value" style="font-size:1.1rem;"><span id="esp-set-th">—</span></div></div>
+          <div class="metric" style="border:1px dashed #f59e0b;"><div class="label"><strong>SIMULATED BP</strong></div><div class="value"><span id="esp-set-bp">—</span><span class="unit">mmHg</span></div></div>
+        </div>
+        <p class="text-xs muted mt">Enter the IP shown on your ESP8266 Serial Monitor (e.g. from hotspot 10.92.127.134). No hardcoded IP. Data fetched from <span class="mono">http://&lt;IP&gt;/data</span> with server proxy fallback.</p>
+      </div>
+        <ul class="reasons text-sm">
+          <li>This local prototype is <strong>not</strong> automatically compliant with medical-device regulations or healthcare-privacy requirements.</li>
+          <li>Do not use real patient data without appropriate authorisation and safeguards.</li>
+          <li>In-browser notifications are not a substitute for hospital alarm systems or supervised clinical monitoring.</li>
+          <li>DHT11 readings are <strong>ambient room</strong> temperature/humidity — never patient body temperature.</li>
+          <li>Risk categories are software priorities from an explainable rule engine, not clinically validated classifications or a trained AI model.</li>
+        </ul>
+        <a class="btn secondary mt" href="/privacy.html"><i data-lucide="file-lock"></i> Full privacy &amp; medical-safety information</a>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script src="/assets/js/vendor/lucide.min.js"></script>
+<script src="/assets/js/core.js"></script>
+<script src="/assets/js/app.js"></script>
+<script>
+"use strict";
+  (async function boot() {
+    const me = await ICUShell.init({ title: "Settings", active: "/settings.html", roles: ["admin", "doctor", "patient"] });
+    if (!me) return;
+    const u = me.user;
+    document.getElementById("account-table").innerHTML = `
+      <tr><td>Name</td><td class="right">${ICU.esc(u.full_name)}</td></tr>
+      <tr><td>Email</td><td class="right">${ICU.esc(u.email)}</td></tr>
+      <tr><td>Role</td><td class="right"><span class="badge ${u.role}">${ICU.esc(u.role)}</span></td></tr>
+      <tr><td>Status</td><td class="right">${u.is_active ? `<span class="badge ok">active</span>` : `<span class="badge critical">inactive</span>`}
+        ${u.role === "doctor" ? (u.is_approved ? `<span class="badge ok">approved</span>` : `<span class="badge moderate">pending</span>`) : ""}</td></tr>
+      <tr><td>Account created</td><td class="right dim">${ICU.fmtTime(u.created_at)}</td></tr>
+      ${me.patient_profile ? `
+        <tr><td>Ward / Bed</td><td class="right">${ICU.esc(me.patient_profile.ward || "—")} / ${ICU.esc(me.patient_profile.bed_label || "—")}</td></tr>
+        <tr><td>Date of birth</td><td class="right dim">${ICU.fmtTime(me.patient_profile.date_of_birth)}</td></tr>` : ""}
+      ${me.doctor_profile ? `
+        <tr><td>Specialty</td><td class="right">${ICU.esc(me.doctor_profile.specialty || "—")}</td></tr>
+        <tr><td>License</td><td class="right">${ICU.esc(me.doctor_profile.license_number || "—")}</td></tr>` : ""}`;
+
+    // ESP8266 quick connect on Settings
+    try {
+      const devs = await ICU.get("/devices");
+      const sel = document.getElementById("esp-set-device");
+      sel.innerHTML = devs.map((d) => `<option value="${d.id}">${ICU.esc(d.device_uid)}</option>`).join("");
+      const loadCfg = async () => {
+        const id = sel.value; if(!id) return;
+        try {
+          const cfg = await ICU.get(`/devices/${id}/fetch-config`);
+          document.getElementById("esp-set-ip").value = cfg.endpoint || "";
+          document.getElementById("esp-set-status").textContent = cfg.enabled ? "Configured" : (cfg.endpoint ? "Saved" : "Not configured");
+          document.getElementById("esp-set-badge").textContent = cfg.enabled ? "Enabled" : "Configured";
+          document.getElementById("esp-set-badge").className = "badge " + (cfg.enabled ? "ok" : "neutral");
+        } catch {}
+      };
+      sel.addEventListener("change", loadCfg);
+      if(sel.value) loadCfg();
+      document.getElementById("esp-set-save").addEventListener("click", async () => {
+        const id = sel.value; const ep = document.getElementById("esp-set-ip").value.trim();
+        if(!id){ ICU.toast("Select a device","warn"); return; }
+        try {
+          await ICU.post(`/devices/${id}/fetch-config`, {device_id: parseInt(id,10), endpoint: ep||null, enabled: true});
+          document.getElementById("esp-set-status").textContent = ep ? "Configured" : "Not configured";
+          ICU.toast("Saved", "success");
+        } catch(e){ ICU.toast(e.message,"error"); }
+      });
+      let t=null;
+      const poll=async()=>{
+        const id = sel.value; const ep = document.getElementById("esp-set-ip").value.trim().replace(/^https?:\/\//,"").replace(/\/.*$/,"");
+        if(!id||!ep){document.getElementById("esp-set-status").textContent="Enter IP";return;}
+        try {
+          const ctrl=new AbortController(); const tt=setTimeout(()=>ctrl.abort(),4000);
+          const r=await fetch("http://"+ep+"/data",{signal:ctrl.signal,cache:"no-store"}); clearTimeout(tt);
+          if(r.ok){
+            const d=await r.json();
+            document.getElementById("esp-set-hr").textContent = d.heart_rate!=null?d.heart_rate:"—";
+            document.getElementById("esp-set-spo2").textContent = d.spo2!=null?d.spo2:"—";
+            document.getElementById("esp-set-th").textContent = (d.ambient_temperature_c!=null?d.ambient_temperature_c:"—") + "°C / " + (d.humidity_percent!=null?d.humidity_percent:"—") + "%";
+            document.getElementById("esp-set-bp").textContent = (d.systolic_bp!=null?d.systolic_bp:"—") + "/" + (d.diastolic_bp!=null?d.diastolic_bp:"—");
+            document.getElementById("esp-set-status").textContent="Connected";
+            document.getElementById("esp-set-last").textContent=new Date().toLocaleTimeString();
+            return;
+          }
+        }catch{}
+        try {
+          const res=await ICU.post(`/devices/${id}/fetch-preview`);
+          if(res.ok&&res.data){
+            const d=res.data;
+            document.getElementById("esp-set-hr").textContent = d.heart_rate!=null?d.heart_rate:"—";
+            document.getElementById("esp-set-spo2").textContent = d.spo2!=null?d.spo2:"—";
+            document.getElementById("esp-set-th").textContent = (d.ambient_temperature_c!=null?d.ambient_temperature_c:"—") + "°C / " + (d.humidity_percent!=null?d.humidity_percent:"—") + "%";
+            document.getElementById("esp-set-bp").textContent = (d.systolic_bp!=null?d.systolic_bp:"—") + "/" + (d.diastolic_bp!=null?d.diastolic_bp:"—");
+            document.getElementById("esp-set-status").textContent="Via proxy";
+            document.getElementById("esp-set-last").textContent=new Date().toLocaleTimeString();
+          } else document.getElementById("esp-set-status").textContent = res.error||"Error";
+        }catch(e){document.getElementById("esp-set-status").textContent="Error";}
+      };
+      document.getElementById("esp-set-connect").addEventListener("click", ()=>{ if(t)clearInterval(t); poll(); t=setInterval(poll,1500); ICU.toast("Polling","success"); });
+      document.getElementById("esp-set-disconnect").addEventListener("click", ()=>{ if(t){clearInterval(t);t=null;} document.getElementById("esp-set-status").textContent="Disconnected"; });
+    } catch {}
+
+    document.getElementById("logout-btn").addEventListener("click", () => ICU.logout());
+    document.getElementById("theme-btn").addEventListener("click", () => ICUShell.toggleTheme());
+
+  try {
+    const cfg = await ICU.get("/config/public");
+    const thr = await fetch("/api/v1/health").then((r) => r.json()).catch(() => null);
+    // Show effective thresholds: admin sees overrides; everyone sees defaults via admin endpoint guard — use public config only.
+    document.getElementById("thr-table").innerHTML = `
+      <tr><td>Stale-data threshold</td><td class="right num">${cfg.stale_seconds}s</td></tr>
+      <tr><td>Device offline threshold</td><td class="right num">${cfg.device_offline_seconds}s</td></tr>
+      <tr><td>Session duration</td><td class="right num">8 hours (rolling)</td></tr>`;
+    document.getElementById("thr-note").textContent =
+      "Clinical thresholds (HR/SpO2) are configurable by administrators on the Administration → Risk thresholds page.";
+  } catch (e) { /* non-fatal */ }
+})();
+</script>
+</body>
+</html>

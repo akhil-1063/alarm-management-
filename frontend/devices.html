@@ -1,0 +1,415 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Devices — ICU Sentinel</title>
+  <link rel="stylesheet" href="/assets/css/styles.css">
+</head>
+<body>
+<div class="layout">
+  <div class="main" id="main">
+    <header class="topbar">
+      <button class="hamburger" id="hamburger" aria-label="Toggle navigation"><i data-lucide="menu"></i></button>
+      <h1 id="topbar-title">Devices</h1>
+      <div class="spacer"></div>
+      <button class="btn secondary sm" id="icu-theme" aria-label="Toggle theme"><i data-lucide="moon"></i></button>
+    </header>
+
+    <div class="content">
+      <div class="grid grid-2 mb">
+        <div class="card">
+          <div class="card-head"><h2><i data-lucide="cpu"></i> Registered ESP32 devices</h2>
+            <button class="btn secondary sm" id="refresh-btn"><i data-lucide="refresh-cw"></i> Refresh</button></div>
+          <div class="table-wrap">
+            <table class="data">
+              <thead><tr>
+                <th>Device ID</th><th>Name / firmware</th><th>Assigned patient</th>
+                <th>Status</th><th>Last seen</th><th>Last reading</th>
+                <th>Ingestion result</th><th></th>
+              </tr></thead>
+              <tbody id="device-tbody"><tr><td colspan="8" class="center muted"><div class="spinner"></div></td></tr></tbody>
+            </table>
+          </div>
+          <p class="text-xs muted mt">Device credentials are shown only once at registration. Rotate a token if it is
+          ever exposed — ordinary device listings never include secrets.</p>
+        </div>
+
+        <div class="card" id="register-card">
+          <div class="card-head"><h2><i data-lucide="plus-circle"></i> Register new device</h2></div>
+          <form id="register-form">
+            <label class="field">Device UID <span class="req">*</span>
+              <input type="text" id="r-uid" required maxlength="128" placeholder="ESP32-ICU-001 (printed on Serial at boot)">
+            </label>
+            <label class="field">Display name
+              <input type="text" id="r-name" maxlength="128" value="ESP32 Monitor">
+            </label>
+            <label class="field">Notes
+              <input type="text" id="r-notes" maxlength="500" placeholder="Bedside A1">
+            </label>
+            <button class="btn primary w-full" type="submit"><i data-lucide="cpu"></i> Register device</button>
+          </form>
+          <div id="token-result" class="hidden mt">
+            <div class="banner warn"><i data-lucide="key-round"></i>
+              <div><strong>Copy this device token now — it is shown only once.</strong><br>
+              Put it in the firmware <span class="mono">config.h</span> as <span class="mono">DEVICE_TOKEN</span>.</div></div>
+            <p class="mono" id="token-value" style="word-break:break-all;background:var(--slate-100);padding:.6rem;border-radius:8px;"></p>
+          </div>
+        </div>
+      </div>
+
+      <div class="card mb">
+        <div class="card-head"><h2><i data-lucide="wifi"></i> ESP8266 Direct Connection (HTTP /data)</h2>
+          <span class="badge neutral" id="esp-fetch-badge">Configure</span></div>
+        <div class="row" style="align-items:flex-end;flex-wrap:wrap;gap:.6rem;">
+          <label class="field" style="min-width:260px;">Select device
+            <select id="esp-device"></select>
+          </label>
+          <label class="field" style="min-width:220px;">ESP8266 IP / endpoint
+            <input type="text" id="esp-ip" placeholder="10.92.127.134 or 192.168.43.123:80">
+          </label>
+          <button class="btn secondary sm" id="esp-save"><i data-lucide="save"></i> Save &amp; Enable</button>
+          <button class="btn secondary sm" id="esp-clear"><i data-lucide="x-circle"></i> Clear</button>
+          <button class="btn sm" id="esp-connect"><i data-lucide="plug-zap"></i> Connect (fetch once)</button>
+          <button class="btn secondary sm" id="esp-disconnect"><i data-lucide="power-off"></i> Disconnect</button>
+        </div>
+        <div class="row mt" style="flex-wrap:wrap;gap:1rem;">
+          <div><strong>Status:</strong> <span id="esp-status">Not configured</span></div>
+          <div><strong>Endpoint:</strong> <span class="mono" id="esp-endpoint">—</span></div>
+          <div><strong>Last update:</strong> <span id="esp-last">—</span></div>
+          <div><strong>Latency:</strong> <span id="esp-lat">—</span></div>
+        </div>
+        <div class="grid grid-4 mt">
+          <div class="metric"><div class="label">Heart Rate</div><div class="value"><span id="esp-hr">—</span><span class="unit">bpm</span></div><div class="meta" id="esp-hr-meta">—</div></div>
+          <div class="metric"><div class="label">SpO₂</div><div class="value"><span id="esp-spo2">—</span><span class="unit">%</span></div><div class="meta" id="esp-spo2-meta">—</div></div>
+          <div class="metric"><div class="label">Ambient Temp</div><div class="value"><span id="esp-temp">—</span><span class="unit">°C</span></div><div class="meta">DHT11 — ambient, not body temp</div></div>
+          <div class="metric"><div class="label">Humidity</div><div class="value"><span id="esp-hum">—</span><span class="unit">%</span></div><div class="meta">DHT11</div></div>
+        </div>
+        <div class="grid grid-4 mt">
+          <div class="metric" style="border:1px dashed #f59e0b;"><div class="label"><strong>SIMULATED BP</strong></div><div class="value"><span id="esp-sys">—</span>/<span id="esp-dia">—</span><span class="unit">mmHg</span></div><div class="meta">Potentiometer — NOT a real BP reading</div></div>
+          <div class="metric"><div class="label">Finger</div><div class="value" style="font-size:1.4rem;"><span id="esp-finger">—</span></div><div class="meta" id="esp-valid-meta">—</div></div>
+          <div class="metric"><div class="label">Buzzer Alert</div><div class="value" style="font-size:1.4rem;"><span id="esp-buzzer">—</span></div><div class="meta">From device JSON</div></div>
+          <div class="metric"><div class="label">Device IP / WiFi</div><div class="value" style="font-size:1rem;" id="esp-devip">—</div><div class="meta" id="esp-uptime">—</div></div>
+        </div>
+        <details class="mt">
+          <summary class="text-sm">Raw /data preview</summary>
+          <pre id="esp-raw" class="mono mt" style="background:var(--slate-100);padding:.8rem;border-radius:8px;white-space:pre-wrap;max-height:260px;overflow:auto;"></pre>
+        </details>
+        <p class="text-xs muted mt">The website fetches <span class="mono">http://&lt;entered-ESP-IP&gt;/data</span> directly in the browser when possible, or via the server proxy. Enter the IP shown by your ESP8266 (no hardcoded IP). Mixed-content/HTTPS can block direct browser fetches — use the server fetch path if that happens.</p>
+      </div>
+        <form id="assign-form" class="row" style="align-items:flex-end;">
+          <label class="field" style="min-width:190px;">Device
+            <select id="a-device"></select>
+          </label>
+          <label class="field" style="min-width:220px;">Patient
+            <select id="a-patient"></select>
+          </label>
+          <button class="btn" type="submit"><i data-lucide="link"></i> Assign</button>
+          <button class="btn secondary" type="button" id="unassign-btn"><i data-lucide="unlink"></i> Unassign selected</button>
+        </form>
+        <p class="text-xs muted">Each device writes to <strong>exactly one</strong> patient. Re-assigning clears the
+        previous link so a device can never contaminate two patients' histories.</p>
+      </div>
+
+      <div class="card mb">
+        <div class="card-head"><h2><i data-lucide="plug-zap"></i> Connectivity test</h2></div>
+        <form id="test-form" class="row" style="align-items:flex-end;">
+          <label class="field" style="min-width:220px;">Device
+            <select id="t-device"></select>
+          </label>
+          <button class="btn secondary" type="submit"><i data-lucide="activity"></i> Run test</button>
+        </form>
+        <pre id="test-result" class="mono mt" style="background:var(--slate-100);padding:.8rem;border-radius:8px;white-space:pre-wrap;"></pre>
+      </div>
+
+      <div class="card">
+        <div class="card-head"><h2><i data-lucide="book-open"></i> ESP32 ↔ laptop connection guide (mobile hotspot)</h2></div>
+        <ol class="text-sm" style="padding-left:1.2rem;line-height:1.9;">
+          <li>Enable your phone's <strong>mobile hotspot</strong> (2.4 GHz — the ESP32 cannot use 5 GHz-only hotspots).</li>
+          <li>Connect the <strong>laptop</strong> to that same hotspot.</li>
+          <li>Power the ESP32; it connects to the hotspot using the SSID/password in <span class="mono">esp32/config.h</span>.</li>
+          <li>Find the laptop's hotspot IPv4 address: open <span class="mono">cmd</span> and run <span class="mono">ipconfig</span>,
+              look under the Wi-Fi adapter for <em>IPv4 Address</em> (e.g. <span class="mono">192.168.43.12</span>).</li>
+          <li>Set <span class="mono">BACKEND_URL</span> in <span class="mono">config.h</span> to
+              <span class="mono">http://LAPTOP_IP:8080</span> — never assume localhost works from the ESP32.</li>
+          <li>Copy the <strong>device UID</strong> and <strong>device token</strong> (from registration above) into the config.</li>
+          <li>Flash the firmware, open Serial Monitor at 115200 baud, and watch it connect and post readings.</li>
+          <li>The device status below turns <span class="badge online">online</span> once the first reading arrives.</li>
+        </ol>
+        <div class="banner warn mt"><i data-lucide="triangle-alert"></i>
+          <div><strong>Hotspot isolation:</strong> some phones block other clients from reaching the laptop
+          (AP/client isolation). If the ESP32 cannot reach the backend:
+          <br>1) check the hotspot settings for “block local network” / “AP isolation” and disable it;
+          <br>2) alternatively use a cheap Wi-Fi router where laptop + ESP32 share the same LAN;
+          <br>3) check Windows Firewall — allow Python on Private networks for TCP port 8080.</div>
+        </div>
+        <p class="text-xs muted mt">Full wiring and firmware documentation: <span class="mono">esp32/wiring_guide.md</span>.</p>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script src="/assets/js/vendor/lucide.min.js"></script>
+<script src="/assets/js/core.js"></script>
+<script src="/assets/js/app.js"></script>
+<script>
+"use strict";
+let DEVICES = [], PATIENTS = [];
+
+  async function loadEspConfig() {
+    const deviceId = document.getElementById("esp-device").value;
+    if (!deviceId) return;
+    try {
+      const cfg = await ICU.get(`/devices/${deviceId}/fetch-config`);
+      document.getElementById("esp-ip").value = cfg.endpoint || "";
+      document.getElementById("esp-endpoint").textContent = cfg.endpoint || "—";
+      document.getElementById("esp-status").textContent = cfg.enabled && cfg.endpoint ? "Configured (enabled)" : (cfg.endpoint ? "Configured (disabled)" : "Not configured");
+      document.getElementById("esp-fetch-badge").textContent = cfg.enabled ? "Enabled" : "Configured";
+      document.getElementById("esp-fetch-badge").className = "badge " + (cfg.enabled ? "ok" : "neutral");
+    } catch (e) { /* ignore */ }
+  }
+
+  let espTimer = null;
+  let espUrl = null;
+
+  async function espConnectOnce() {
+    const deviceId = document.getElementById("esp-device").value;
+    if (!deviceId) { ICU.toast("Select a device", "warn"); return; }
+    try {
+      const res = await ICU.post(`/devices/${deviceId}/fetch-preview`);
+      document.getElementById("esp-raw").textContent = JSON.stringify(res.data || res, null, 2);
+      document.getElementById("esp-status").textContent = res.ok ? `Connected (${res.latency_ms}ms)` : `Error: ${res.status}`;
+      document.getElementById("esp-last").textContent = new Date().toLocaleString();
+      document.getElementById("esp-lat").textContent = res.latency_ms != null ? res.latency_ms + " ms" : "—";
+      if (res.ok && res.data) applyEspData(res.data);
+      if (!res.ok) ICU.toast(res.error || "Fetch failed", "error");
+    } catch (e) {
+      document.getElementById("esp-status").textContent = "Error";
+      document.getElementById("esp-raw").textContent = e.message;
+      ICU.toast(e.message, "error");
+    }
+  }
+
+  function applyEspData(d) {
+    const set = (id, v) => { const el = document.getElementById(id); if (el) el.textContent = v; };
+    set("esp-hr", d.heart_rate != null ? d.heart_rate : "—");
+    set("esp-spo2", d.spo2 != null ? d.spo2 : "—");
+    set("esp-temp", d.ambient_temperature_c != null ? d.ambient_temperature_c : (d.ambient_temperature != null ? d.ambient_temperature : "—"));
+    set("esp-hum", d.humidity_percent != null ? d.humidity_percent : (d.ambient_humidity != null ? d.ambient_humidity : "—"));
+    set("esp-sys", d.systolic_bp != null ? d.systolic_bp : "—");
+    set("esp-dia", d.diastolic_bp != null ? d.diastolic_bp : "—");
+    set("esp-finger", d.finger_present === true ? "DETECTED" : (d.finger_present === false ? "NOT DETECTED" : "—"));
+    set("esp-buzzer", d.buzzer_alert ? "ALERT" : "OFF");
+    set("esp-devip", d.ip || "—");
+    set("esp-uptime", d.uptime_ms != null ? "uptime " + Math.round(d.uptime_ms/1000) + "s" : "—");
+    set("esp-hr-meta", (d.hr_valid !== undefined) ? ("hr_valid: " + d.hr_valid) : "—");
+    set("esp-spo2-meta", (d.spo2_valid !== undefined) ? ("spo2_valid: " + d.spo2_valid) : "—");
+    set("esp-valid-meta", "finger: " + d.finger_present);
+  }
+
+  async function espStartPoll() {
+    espStopPoll();
+    const deviceId = document.getElementById("esp-device").value;
+    const endpoint = document.getElementById("esp-ip").value.trim();
+    if (!deviceId || !endpoint) { ICU.toast("Save an endpoint first", "warn"); return; }
+    // Try direct browser fetch first (works on http pages / same network)
+    const tryDirect = async () => {
+      try {
+        const ctrl = new AbortController();
+        const t = setTimeout(() => ctrl.abort(), 4000);
+        const r = await fetch("http://" + endpoint.replace(/^https?:\/\//,"").replace(/\/.*$/,"") + "/data", { signal: ctrl.signal, cache: "no-store" });
+        clearTimeout(t);
+        if (r.ok) {
+          const d = await r.json();
+          document.getElementById("esp-raw").textContent = JSON.stringify(d, null, 2);
+          document.getElementById("esp-status").textContent = "Direct (browser)";
+          document.getElementById("esp-last").textContent = new Date().toLocaleString();
+          applyEspData(d);
+          return true;
+        }
+      } catch {}
+      // Fallback to server proxy
+      try {
+        const res = await ICU.post(`/devices/${deviceId}/fetch-preview`);
+        document.getElementById("esp-raw").textContent = JSON.stringify(res.data || res, null, 2);
+        document.getElementById("esp-status").textContent = res.ok ? "Via server proxy" : `Error: ${res.status}`;
+        document.getElementById("esp-last").textContent = new Date().toLocaleString();
+        document.getElementById("esp-lat").textContent = res.latency_ms != null ? res.latency_ms + " ms" : "—";
+        if (res.ok && res.data) applyEspData(res.data);
+        return res.ok;
+      } catch (e) {
+        document.getElementById("esp-status").textContent = "Error";
+        document.getElementById("esp-raw").textContent = e.message;
+        return false;
+      }
+    };
+    await tryDirect();
+    espTimer = setInterval(tryDirect, 1500);
+    ICU.toast("Polling started (every ~1.5s)", "success");
+  }
+
+  function espStopPoll() {
+    if (espTimer) { clearInterval(espTimer); espTimer = null; }
+    document.getElementById("esp-status").textContent = "Disconnected";
+  }
+
+  async function refreshEspSelect() {
+    const sel = document.getElementById("esp-device");
+    sel.innerHTML = DEVICES.map((d) => `<option value="${d.id}">${ICU.esc(d.device_uid)} — ${ICU.esc(d.name)}</option>`).join("");
+    if (sel.value) loadEspConfig();
+  }
+
+  async function loadDevices() {
+    DEVICES = await ICU.get("/devices");
+    await refreshEspSelect();
+    const tbody = document.getElementById("device-tbody");
+    const freshBadge = (d) => {
+    if (d.data_freshness === "fresh") return `<span class="badge ok" title="Data age ${Math.round(d.data_age_seconds)}s">fresh</span>`;
+    if (d.data_freshness === "stale") return `<span class="badge moderate" title="Data age ${Math.round(d.data_age_seconds)}s — last stored value, NOT live">stale</span>`;
+    return `<span class="badge neutral">no data</span>`;
+  };
+  const ingestBadge = (d) => {
+    const cls = d.last_ingest_status === "stored" ? "ok"
+      : d.last_ingest_status === "stored_unassigned" ? "moderate"
+      : d.last_ingest_status === "rejected" ? "critical" : "neutral";
+    return `<span class="badge ${cls}">${ICU.esc(d.last_ingest_status || "never")}</span>`;
+  };
+  tbody.innerHTML = DEVICES.map((d) => {
+    const p = d.patient_name;
+    return `<tr>
+      <td class="mono">${ICU.esc(d.device_uid)}</td>
+      <td>${ICU.esc(d.name)}<br><span class="text-xs muted">${ICU.esc(d.ip_address || "")} · fw ${ICU.esc(d.firmware_version || "—")}</span></td>
+      <td>${p ? ICU.esc(p) : `<span class="badge neutral">unassigned</span>`}</td>
+      <td>
+        <span class="badge ${d.is_online ? "online" : (d.is_active ? "offline" : "neutral")}">${d.is_online ? "online" : "offline"}</span>
+        ${d.auth_status !== "active" ? `<span class="badge critical" title="Device credential deactivated">deactivated</span>` : ""}
+      </td>
+      <td class="dim">${ICU.fmtTime(d.last_seen_at)}</td>
+      <td>${d.last_reading_at
+        ? `${ICU.fmtTime(d.last_reading_at)}<br>${freshBadge(d)}`
+        : `<span class="dim">—</span> ${freshBadge(d)}`}</td>
+      <td>${ingestBadge(d)}
+        <br><span class="text-xs ${d.last_error ? "" : "muted"}" title="${ICU.esc(d.last_error || "")}"
+        >${d.last_error ? ICU.esc(d.last_error.slice(0, 70)) : "last: " + ICU.fmtTime(d.last_ingest_at)}</span></td>
+      <td>
+        <button class="btn secondary sm" data-test="${d.id}" title="Connectivity test"><i data-lucide="activity"></i></button>
+        ${ME.user.role === "admin" ? `<button class="btn ghost-danger sm" data-rotate="${d.id}" title="Rotate token"><i data-lucide="key-round"></i></button>` : ""}
+      </td>
+    </tr>`;
+  }).join("") || `<tr><td colspan="8" class="center muted">No devices registered yet</td></tr>`;
+
+  const optsD = DEVICES.map((d) => `<option value="${d.id}">${ICU.esc(d.device_uid)} — ${ICU.esc(d.name)}</option>`).join("");
+  document.getElementById("a-device").innerHTML = optsD || `<option value="">(no devices)</option>`;
+  document.getElementById("t-device").innerHTML = optsD || `<option value="">(no devices)</option>`;
+
+  tbody.querySelectorAll("[data-test]").forEach((b) =>
+    b.addEventListener("click", () => runTest(b.dataset.test)));
+  tbody.querySelectorAll("[data-rotate]").forEach((b) =>
+    b.addEventListener("click", async () => {
+      if (!confirm("Rotate this device's token? The current token stops working immediately.")) return;
+      const res = await ICU.post(`/devices/${b.dataset.rotate}/rotate-token`);
+      alert("New device token (copy now, shown once):\n\n" + res.device_token);
+      await loadDevices();
+    }));
+  ICU.icons();
+}
+
+async function loadPatients() {
+  PATIENTS = await ICU.get("/doctors/patients");
+  document.getElementById("a-patient").innerHTML =
+    PATIENTS.map((p) => `<option value="${p.user_id}">${ICU.esc(p.full_name)} (#${p.user_id})</option>`).join("")
+    || `<option value="">(no patients — register some first)</option>`;
+}
+
+async function runTest(deviceId) {
+  const res = await ICU.post(`/devices/${deviceId}/test`);
+  document.getElementById("test-result").textContent = JSON.stringify(res, null, 2);
+  ICU.toast(res.online ? "Device is online" : "Device offline — check power/hotspot/backend URL", res.online ? "success" : "warn");
+}
+
+let ME = null;
+(async function boot() {
+  ME = await ICUShell.init({ title: "Devices", active: "/devices.html", roles: ["admin", "doctor"] });
+  if (!ME) return;
+  if (ME.user.role !== "admin") document.getElementById("register-card").style.opacity = ".95";
+
+  await loadPatients();
+  await loadDevices();
+  setInterval(loadDevices, 15000);
+
+  document.getElementById("esp-device").addEventListener("change", loadEspConfig);
+  document.getElementById("esp-save").addEventListener("click", async () => {
+    const deviceId = document.getElementById("esp-device").value;
+    const endpoint = document.getElementById("esp-ip").value.trim();
+    if (!deviceId) { ICU.toast("Select a device", "warn"); return; }
+    try {
+      const cfg = await ICU.post(`/devices/${deviceId}/fetch-config`, { device_id: parseInt(deviceId,10), endpoint: endpoint || null, enabled: true });
+      document.getElementById("esp-endpoint").textContent = cfg.endpoint || "—";
+      document.getElementById("esp-status").textContent = cfg.endpoint ? "Configured (enabled)" : "Not configured";
+      ICU.toast("Endpoint saved", "success");
+    } catch (e) { ICU.toast(e.message, "error"); }
+  });
+  document.getElementById("esp-clear").addEventListener("click", async () => {
+    const deviceId = document.getElementById("esp-device").value;
+    if (!deviceId) return;
+    try {
+      await ICU.post(`/devices/${deviceId}/fetch-config`, { device_id: parseInt(deviceId,10), endpoint: null, enabled: false });
+      document.getElementById("esp-ip").value = "";
+      document.getElementById("esp-endpoint").textContent = "—";
+      document.getElementById("esp-status").textContent = "Not configured";
+      espStopPoll();
+      ICU.toast("Endpoint cleared", "success");
+    } catch (e) { ICU.toast(e.message, "error"); }
+  });
+  document.getElementById("esp-connect").addEventListener("click", espConnectOnce);
+  document.getElementById("esp-disconnect").addEventListener("click", () => { espStopPoll(); ICU.toast("Polling stopped", "info"); });
+
+  document.getElementById("refresh-btn").addEventListener("click", loadDevices);
+
+  document.getElementById("register-form").addEventListener("submit", async (e) => {
+    e.preventDefault();
+    try {
+      const res = await ICU.post("/devices/register", {
+        device_uid: document.getElementById("r-uid").value.trim(),
+        name: document.getElementById("r-name").value.trim() || "ESP32 Monitor",
+        notes: document.getElementById("r-notes").value.trim() || null,
+      });
+      document.getElementById("token-result").classList.remove("hidden");
+      document.getElementById("token-value").textContent = res.device_token;
+      ICU.toast("Device registered — copy the token now", "success");
+      await loadDevices();
+    } catch (err) { ICU.toast(err.message, "error"); }
+  });
+
+  document.getElementById("assign-form").addEventListener("submit", async (e) => {
+    e.preventDefault();
+    const deviceId = document.getElementById("a-device").value;
+    const patientId = document.getElementById("a-patient").value;
+    if (!deviceId || !patientId) { ICU.toast("Select a device and a patient", "warn"); return; }
+    try {
+      await ICU.post(`/devices/${deviceId}/assign`, { patient_user_id: parseInt(patientId, 10) });
+      ICU.toast("Device assigned", "success");
+      await loadDevices();
+    } catch (err) { ICU.toast(err.message, "error"); }
+  });
+
+  document.getElementById("unassign-btn").addEventListener("click", async () => {
+    const deviceId = document.getElementById("a-device").value;
+    if (!deviceId) return;
+    try {
+      await ICU.post(`/devices/${deviceId}/unassign`);
+      ICU.toast("Device unassigned", "success");
+      await loadDevices();
+    } catch (err) { ICU.toast(err.message, "error"); }
+  });
+
+  document.getElementById("test-form").addEventListener("submit", async (e) => {
+    e.preventDefault();
+    const deviceId = document.getElementById("t-device").value;
+    if (!deviceId) return;
+    await runTest(deviceId);
+  });
+})();
+</script>
+</body>
+</html>

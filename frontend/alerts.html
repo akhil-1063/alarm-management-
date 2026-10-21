@@ -1,0 +1,188 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Alerts &amp; Events — ICU Sentinel</title>
+  <link rel="stylesheet" href="/assets/css/styles.css">
+</head>
+<body>
+<div class="layout">
+  <div class="main" id="main">
+    <header class="topbar">
+      <button class="hamburger" id="hamburger" aria-label="Toggle navigation"><i data-lucide="menu"></i></button>
+      <h1 id="topbar-title">Alerts &amp; Events</h1>
+      <div class="spacer"></div>
+      <button class="btn secondary sm" id="icu-theme" aria-label="Toggle theme"><i data-lucide="moon"></i></button>
+    </header>
+
+    <div class="content">
+      <div class="banner info">
+        <i data-lucide="info"></i>
+        <div>Critical warnings remain visible until acknowledged or resolved by a clinician.
+        In-application alerts are <strong>not</strong> a substitute for hospital alarm equipment.</div>
+      </div>
+
+      <div class="card mb">
+        <div class="card-head">
+          <h2><i data-lucide="siren"></i> Alerts</h2>
+          <button class="btn secondary sm" id="refresh-btn"><i data-lucide="refresh-cw"></i> Refresh</button>
+        </div>
+        <div class="filter-bar">
+          <label class="field">Status
+            <select id="f-status">
+              <option value="">All</option>
+              <option value="active" selected>Active</option>
+              <option value="acknowledged">Acknowledged</option>
+              <option value="under_review">Under review</option>
+              <option value="resolved">Resolved</option>
+            </select>
+          </label>
+          <label class="field">Severity
+            <select id="f-sev"><option value="">All</option>
+              <option>critical</option><option>high</option><option>moderate</option><option>low</option>
+            </select>
+          </label>
+          <label class="field">Category
+            <select id="f-cat"><option value="">All</option>
+              <option>cardiac</option><option>device</option><option>stroke_suspect</option><option>general</option><option>infection</option>
+            </select>
+          </label>
+        </div>
+        <div id="alerts-root"><div class="spinner"></div></div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div class="modal-backdrop" id="note-modal">
+  <div class="modal">
+    <div class="modal-head">
+      <h2 id="note-modal-title">Add note</h2>
+      <button class="close" id="note-modal-close" aria-label="Close"><i data-lucide="x"></i></button>
+    </div>
+    <label class="field">Note
+      <textarea id="note-modal-text" maxlength="4000" placeholder="What did you observe / what is the plan?"></textarea>
+    </label>
+    <div class="form-actions">
+      <button class="btn" id="note-modal-confirm"><i data-lucide="check"></i> Confirm</button>
+      <button class="btn secondary" id="note-modal-cancel">Cancel</button>
+    </div>
+  </div>
+</div>
+
+<script src="/assets/js/vendor/lucide.min.js"></script>
+<script src="/assets/js/core.js"></script>
+<script src="/assets/js/app.js"></script>
+<script>
+"use strict";
+let ME = null;
+let pendingAction = null; // { alertId, action }
+
+async function load() {
+  const el = document.getElementById("alerts-root");
+  const params = { limit: 200 };
+  const status = document.getElementById("f-status").value;
+  const sev = document.getElementById("f-sev").value;
+  const cat = document.getElementById("f-cat").value;
+  if (status) params.status = status;
+  if (sev) params.severity = sev;
+  if (cat) params.category = cat;
+
+  try {
+    const data = await ICU.get("/alerts", params);
+    const alerts = data.alerts || [];
+    if (!alerts.length) {
+      el.innerHTML = `<div class="state-box"><i data-lucide="circle-check"></i>
+        <div>No alerts match these filters</div></div>`;
+      ICU.icons();
+      return;
+    }
+    el.innerHTML = alerts.map((a) => {
+      const canAct = (ME.user.role === "doctor" || ME.user.role === "admin") && a.status !== "resolved";
+      const canReopen = (ME.user.role === "doctor" || ME.user.role === "admin") && a.status === "resolved";
+      const statusClass = a.status === "resolved" ? "ok"
+        : a.status === "under_review" ? "moderate"
+        : a.status === "acknowledged" ? "neutral" : "critical";
+      return `<div class="alert-item ${a.severity}">
+        <div class="head">
+          <span class="title">${ICU.esc(a.title)}</span>
+          ${ICU.sevBadge(a.severity)}
+          <span class="badge neutral">${ICU.esc(a.category)}</span>
+          <span class="badge ${statusClass}">${a.status === "under_review" ? "under review" : ICU.esc(a.status)}</span>
+          ${ICU.simBadge(a.is_simulated)}
+          ${a.patient_name ? `<span class="text-xs muted">patient: <a href="/patient_monitor.html?id=${a.patient_user_id}">${ICU.esc(a.patient_name)}</a></span>` : ""}
+        </div>
+        <div class="msg">${ICU.esc(a.message)}</div>
+        <div class="foot">
+          <span><i data-lucide="clock"></i> ${ICU.fmtTime(a.created_at)}</span>
+          ${a.acknowledged_at ? `<span>acked ${ICU.fmtTime(a.acknowledged_at)}</span>` : ""}
+          ${a.resolved_at ? `<span>resolved ${ICU.fmtTime(a.resolved_at)}</span>` : ""}
+          ${canAct ? `
+            ${a.status === "active" ? `<button class="btn sm secondary" data-ack="${a.id}"><i data-lucide="check"></i> Acknowledge</button>` : ""}
+            ${a.status !== "under_review" ? `<button class="btn sm secondary" data-review="${a.id}"><i data-lucide="search"></i> Start review</button>` : ""}
+            <button class="btn sm" data-resolve="${a.id}"><i data-lucide="circle-check-big"></i> Resolve</button>` : ""}
+          ${canReopen ? `<button class="btn sm secondary" data-reopen="${a.id}"><i data-lucide="rotate-ccw"></i> Reopen</button>` : ""}
+        </div>
+      </div>`;
+    }).join("");
+
+    el.querySelectorAll("[data-ack]").forEach((b) =>
+      b.addEventListener("click", () => openNote(parseInt(b.dataset.ack, 10), "acknowledge")));
+    el.querySelectorAll("[data-review]").forEach((b) =>
+      b.addEventListener("click", () => openNote(parseInt(b.dataset.review, 10), "under-review")));
+    el.querySelectorAll("[data-resolve]").forEach((b) =>
+      b.addEventListener("click", () => openNote(parseInt(b.dataset.resolve, 10), "resolve")));
+    el.querySelectorAll("[data-reopen]").forEach((b) =>
+      b.addEventListener("click", () => openNote(parseInt(b.dataset.reopen, 10), "reopen")));
+    ICU.icons();
+  } catch (e) {
+    el.innerHTML = `<div class="state-box"><i data-lucide="circle-alert"></i><div>${ICU.esc(e.message)}</div></div>`;
+    ICU.icons();
+  }
+}
+
+function openNote(alertId, action) {
+  pendingAction = { alertId, action };
+  const titles = {
+    acknowledge: "Acknowledge alert",
+    resolve: "Resolve alert",
+    "under-review": "Start clinical review",
+    reopen: "Reopen alert",
+  };
+  document.getElementById("note-modal-title").textContent = titles[action] || "Alert action";
+  document.getElementById("note-modal").classList.add("open");
+  document.getElementById("note-modal-text").value = "";
+  ICU.icons();
+}
+function closeNote() { document.getElementById("note-modal").classList.remove("open"); pendingAction = null; }
+
+document.getElementById("note-modal-close").addEventListener("click", closeNote);
+document.getElementById("note-modal-cancel").addEventListener("click", closeNote);
+document.getElementById("note-modal-confirm").addEventListener("click", async () => {
+  if (!pendingAction) return;
+  const note = document.getElementById("note-modal-text").value.trim() || null;
+  const { alertId, action } = pendingAction;
+  try {
+    await ICU.post(`/alerts/${alertId}/${action}`, { note });
+    const done = { acknowledge: "Alert acknowledged", resolve: "Alert resolved",
+                   "under-review": "Alert moved to under review", reopen: "Alert reopened" };
+    ICU.toast(done[action] || "Done", "success");
+    closeNote();
+    await load();
+    ICUShell.refreshAlertBadge();
+  } catch (e) { ICU.toast(e.message, "error"); }
+});
+
+(async function boot() {
+  ME = await ICUShell.init({ title: "Alerts & Events", active: "/alerts.html", roles: ["admin", "doctor", "patient"] });
+  if (!ME) return;
+  ["f-status", "f-sev", "f-cat"].forEach((id) => document.getElementById(id).addEventListener("change", load));
+  document.getElementById("refresh-btn").addEventListener("click", load);
+  await load();
+  setInterval(load, 12000);
+  window.addEventListener("icu-alerts-updated", () => {});
+})();
+</script>
+</body>
+</html>

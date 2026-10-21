@@ -1,0 +1,247 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>AI Risk Analysis — ICU Sentinel</title>
+  <link rel="stylesheet" href="/assets/css/styles.css">
+</head>
+<body>
+<div class="layout">
+  <div class="main" id="main">
+    <header class="topbar">
+      <button class="hamburger" id="hamburger" aria-label="Toggle navigation"><i data-lucide="menu"></i></button>
+      <h1 id="topbar-title">AI Risk Analysis</h1>
+      <div class="spacer"></div>
+      <button class="btn secondary sm" id="icu-theme" aria-label="Toggle theme"><i data-lucide="moon"></i></button>
+    </header>
+
+    <div class="content">
+      <div class="banner warn">
+        <i data-lucide="brain-circuit"></i>
+        <div><strong>How this module works.</strong> This is an <em>explainable, rule-based</em> early-warning engine
+        (thresholds + persistence + hysteresis + combination patterns). It is <strong>not</strong> a trained machine-learning
+        model and it does <strong>not</strong> diagnose disease. Every assessment lists the exact reasons and input
+        readings that produced it. A machine-learning model can be added later behind the same interface
+        (see <span class="mono">ml/README.md</span>).</div>
+      </div>
+
+      <div class="card mb">
+        <div class="row between">
+          <div>
+            <h2><i data-lucide="user"></i> Patient</h2>
+            <p class="card-sub" id="risk-meta">Loading…</p>
+          </div>
+          <div class="row">
+            <label class="field" style="margin:0;"><span class="visually-hidden">Patient</span>
+              <select id="patient-picker"></select></label>
+            <button class="btn secondary sm" id="reassess-btn"><i data-lucide="refresh-cw"></i> Re-run assessment</button>
+          </div>
+        </div>
+      </div>
+
+      <div class="grid grid-2 mb">
+        <div class="card">
+          <div class="card-head"><h2><i data-lucide="gauge"></i> Current assessment</h2>
+            <span id="cur-badge" class="badge low">low</span></div>
+          <div class="ring-wrap mb">
+            <div class="ring low" id="cur-ring" style="--pct:0%"><span id="cur-score">0</span></div>
+            <div style="flex:1;">
+              <ul class="reasons" id="cur-reasons"><li>Waiting…</li></ul>
+            </div>
+          </div>
+          <h3 class="mb">Evidence (inputs used)</h3>
+          <pre id="cur-evidence" class="mono" style="background:var(--slate-100);padding:.7rem;border-radius:8px;overflow-x:auto;font-size:.75rem;"></pre>
+        </div>
+
+        <div class="card">
+          <div class="card-head"><h2><i data-lucide="line-chart"></i> Risk score history</h2></div>
+          <div class="chart-box"><canvas id="risk-chart"></canvas></div>
+          <p class="text-xs muted">Score 0–100, categories: Low &lt; thresholds, Moderate, High, Critical.
+          Category colours: green/amber/orange/red points.</p>
+        </div>
+      </div>
+
+      <div class="card mb">
+        <div class="card-head"><h2><i data-lucide="activity"></i> Disease-warning modules — possible-risk status</h2>
+          <span class="text-xs muted">possible-risk flags for review · NOT diagnoses</span></div>
+        <div class="grid grid-2" id="modules-grid">
+          <div class="state-box"><div class="spinner"></div></div>
+        </div>
+        <p class="text-xs muted mt">Each module reports its own status, evidence and which clinical parameters are
+        missing. “Insufficient clinical parameters” means the current hardware cannot measure what the assessment
+        would need (body temperature, blood pressure, ECG) — no values are invented.</p>
+      </div>
+
+      <div class="card">
+        <div class="card-head"><h2><i data-lucide="history"></i> Assessment history</h2></div>
+        <div class="table-wrap">
+          <table class="data">
+            <thead><tr><th>Time</th><th>Module</th><th>Category</th><th>Score</th><th>Reasons</th><th>Source</th></tr></thead>
+            <tbody id="hist-tbody"><tr><td colspan="6" class="center muted"><div class="spinner"></div></td></tr></tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script src="/assets/js/vendor/lucide.min.js"></script>
+<script src="/assets/js/vendor/chart.umd.min.js"></script>
+<script src="/assets/js/core.js"></script>
+<script src="/assets/js/app.js"></script>
+<script>
+"use strict";
+let PID = null, ME = null, riskChart = null;
+const SEV = { low: 0, moderate: 1, high: 2, critical: 3 };
+
+async function pickPatients() {
+  if (ME.user.role === "patient") return [ME.user.id];
+  const list = await ICU.get("/doctors/patients");
+  const sel = document.getElementById("patient-picker");
+  const param = parseInt(new URLSearchParams(location.search).get("id") || "", 10);
+  sel.innerHTML = list.map((p) => `<option value="${p.user_id}">${ICU.esc(p.full_name)} (#${p.user_id})</option>`).join("");
+  if (param && list.some((p) => p.user_id === param)) sel.value = String(param);
+  if (!list.length) throw new Error("No patients available.");
+  return list.map((p) => p.user_id);
+}
+
+const MODULE_META = {
+  possible_sepsis: { label: "Possible infection-related deterioration", icon: "thermometer" },
+  possible_cardiac: { label: "Possible cardiac concern", icon: "heart-pulse" },
+  stroke_suspect: { label: "Possible stroke warning", icon: "brain" },
+  general_abnormalities: { label: "General physiological abnormalities", icon: "activity" },
+  technical: { label: "Technical alarms (device / signal / staleness)", icon: "wifi-off" },
+};
+
+function renderModules(latest) {
+  const grid = document.getElementById("modules-grid");
+  const modules = (latest && latest.evidence && latest.evidence.modules) || null;
+  if (!modules) {
+    grid.innerHTML = `<div class="state-box" style="grid-column:1/-1;">
+      <i data-lucide="circle-alert"></i>
+      <div>No module reports stored for this assessment.</div></div>`;
+    ICU.icons();
+    return;
+  }
+  const statusText = {
+    flagged: "flagged", possible_risk_flag: "possible-risk flag",
+    insufficient_parameters: "insufficient parameters", not_flagged: "not flagged",
+    unavailable: "unavailable", ok: "ok",
+  };
+  const sevColors = { critical: "#dc2626", high: "#ea580c", moderate: "#d97706", low: "#16a34a" };
+  grid.innerHTML = Object.keys(MODULE_META).map((key) => {
+    const m = modules[key];
+    if (!m) return "";
+    const meta = MODULE_META[key];
+    const sev = m.severity || "low";
+    const statusCls = (m.status === "flagged" || m.status === "possible_risk_flag")
+      ? "badge " + sev : (m.status === "ok" || m.status === "not_flagged" ? "badge ok" : "badge moderate");
+    return `<div class="card" style="border-left:4px solid ${sevColors[sev] || "#cbd5e1"};">
+      <div class="row between mb">
+        <strong><i data-lucide="${meta.icon}"></i> ${meta.label}</strong>
+        <span class="${statusCls}">${statusText[m.status] || ICU.esc(m.status)}</span>
+      </div>
+      <p class="text-sm" style="white-space:normal;">${ICU.esc(m.message || "")}</p>
+      ${(m.missing_parameters && m.missing_parameters.length) ? `
+        <p class="text-xs muted mt"><strong>Missing clinical parameters:</strong>
+        ${m.missing_parameters.map((x) => ICU.esc(x)).join(" · ")}</p>` : ""}
+      ${(m.evidence && Object.keys(m.evidence).length) ? `
+        <details class="mt"><summary class="text-xs muted" style="cursor:pointer;">Evidence</summary>
+        <pre class="mono" style="background:var(--slate-100);padding:.5rem;border-radius:8px;font-size:.7rem;white-space:pre-wrap;">${ICU.esc(JSON.stringify(m.evidence, null, 2))}</pre>
+        </details>` : ""}
+    </div>`;
+  }).join("");
+  ICU.icons();
+}
+
+async function load() {
+  const hist = await ICU.get(`/patients/${PID}/risk-history`, { limit: 120 });
+  const assessments = (hist.assessments || []).slice().reverse();
+  const latest = (hist.assessments || [])[0];
+
+  const badge = document.getElementById("cur-badge");
+  if (latest) {
+    badge.className = "badge " + latest.risk_category;
+    badge.textContent = latest.risk_category;
+    document.getElementById("cur-score").textContent = Math.round(latest.risk_score);
+    const ring = document.getElementById("cur-ring");
+    ring.className = "ring " + latest.risk_category;
+    ring.style.setProperty("--pct", Math.max(4, Math.round(latest.risk_score)) + "%");
+    document.getElementById("cur-reasons").innerHTML =
+      latest.reasons.map((r) => `<li>${ICU.esc(r)}</li>`).join("") || "<li>No reasons recorded</li>";
+    document.getElementById("cur-evidence").textContent = JSON.stringify(latest.evidence, null, 2);
+    renderModules(latest);
+    document.getElementById("risk-meta").innerHTML =
+      `Assessed at ${ICU.fmtTime(latest.assessed_at)} · module <span class="badge neutral">${ICU.esc(latest.module)}</span>
+       ${latest.is_simulated ? ICU.simBadge(true) : `<span class="badge neutral">real sensor data</span>`}`;
+  }
+
+  const labels = assessments.map((a) => ICU.fmtClock(a.assessed_at));
+  const colors = assessments.map((a) => ICU.CHART_COLORS.hr); // overridden below via segment coloring
+  if (riskChart) ICU.destroyChart(riskChart);
+  const colorMap = { low: "#16a34a", moderate: "#d97706", high: "#ea580c", critical: "#dc2626" };
+  riskChart = new Chart(document.getElementById("risk-chart").getContext("2d"), {
+    type: "line",
+    data: {
+      labels,
+      datasets: [{
+        label: "Risk score",
+        data: assessments.map((a) => a.risk_score),
+        borderColor: "#7c3aed",
+        backgroundColor: "rgba(124,58,237,.12)",
+        fill: true,
+        spanGaps: false,
+        pointBackgroundColor: assessments.map((a) => colorMap[a.risk_category] || "#7c3aed"),
+        pointRadius: 4,
+      }],
+    },
+    options: {
+      responsive: true, maintainAspectRatio: false,
+      plugins: { legend: { display: false } },
+      scales: {
+        y: { min: 0, max: 100, ticks: { color: "#94a3b8" }, grid: { color: "rgba(148,163,184,.14)" } },
+        x: { ticks: { color: "#94a3b8", maxTicksLimit: 10 }, grid: { color: "rgba(148,163,184,.1)" } },
+      },
+    },
+  });
+
+  document.getElementById("hist-tbody").innerHTML = assessments.slice().reverse().map((a) => `<tr>
+    <td class="dim">${ICU.fmtTime(a.assessed_at)}</td>
+    <td><span class="badge neutral">${ICU.esc(a.module)}</span></td>
+    <td>${ICU.riskBadge(a.risk_category)}</td>
+    <td class="num">${Math.round(a.risk_score)}</td>
+    <td style="white-space:normal;max-width:480px;" class="text-sm">${a.reasons.map((r) => ICU.esc(r)).join("<br>")}</td>
+    <td>${a.is_simulated ? ICU.simBadge(true) : `<span class="badge neutral">real</span>`}</td>
+  </tr>`).join("") || `<tr><td colspan="6" class="center muted">No assessments yet — wait for sensor data</td></tr>`;
+  ICU.icons();
+}
+
+(async function boot() {
+  ME = await ICUShell.init({ title: "AI Risk Analysis", active: "/risk.html", roles: ["admin", "doctor", "patient"] });
+  if (!ME) return;
+  try {
+    const ids = await pickPatients();
+    PID = ME.user.role === "patient" ? ME.user.id : parseInt(document.getElementById("patient-picker").value, 10);
+    document.getElementById("patient-picker").addEventListener("change", async (e) => {
+      PID = parseInt(e.target.value, 10);
+      await load();
+    });
+    document.getElementById("reassess-btn").addEventListener("click", async () => {
+      try {
+        const res = await ICU.post(`/patients/${PID}/reassess`);
+        ICU.toast(`Assessment updated: ${res.risk_category}`, res.risk_category === "low" ? "success" : "warn");
+        await load();
+      } catch (e) { ICU.toast(e.message, "error"); }
+    });
+    await load();
+    setInterval(load, 20000);
+  } catch (e) {
+    document.querySelector(".content").innerHTML =
+      `<div class="state-box"><i data-lucide="circle-alert"></i><div>${ICU.esc(e.message)}</div></div>`;
+    ICU.icons();
+  }
+})();
+</script>
+</body>
+</html>

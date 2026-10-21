@@ -1,0 +1,439 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Patient Monitor — ICU Sentinel</title>
+  <link rel="stylesheet" href="/assets/css/styles.css">
+</head>
+<body>
+<div class="layout">
+  <div class="main" id="main">
+    <header class="topbar">
+      <button class="hamburger" id="hamburger" aria-label="Toggle navigation"><i data-lucide="menu"></i></button>
+      <h1 id="topbar-title">Live Monitoring</h1>
+      <div class="spacer"></div>
+      <span class="conn-pill" id="conn-pill"><span class="dot"></span>Connecting</span>
+      <button class="btn secondary sm" id="icu-theme" aria-label="Toggle theme"><i data-lucide="moon"></i></button>
+    </header>
+
+    <div class="content">
+      <div class="row between mb">
+        <div>
+          <h2 id="patient-name">Patient</h2>
+          <p class="text-sm muted" id="patient-meta">Loading…</p>
+        </div>
+        <div class="row">
+          <label class="field" style="margin:0;" id="patient-picker-wrap">
+            <span class="visually-hidden">Patient</span>
+            <select id="patient-picker"></select>
+          </label>
+          <button class="btn secondary sm" id="export-btn"><i data-lucide="download"></i> Export CSV</button>
+        </div>
+      </div>
+
+      <div class="banner warn" id="stale-banner" style="display:none;">
+        <i data-lucide="triangle-alert"></i>
+        <div><strong>Stale data.</strong> No recent readings are arriving. Verify the ESP32 is powered, connected to
+        the hotspot and pointing at this laptop's IPv4 address. Charts below may not reflect the patient's current state.</div>
+      </div>
+
+      <div class="banner error" id="sim-banner" style="display:none;">
+        <i data-lucide="flask-conical"></i>
+        <div><strong>The most recent reading is simulated test data</strong> — it was produced by the developer test
+        panel, not by a real ESP32 measurement.</div>
+      </div>
+
+      <!-- Live metric cards -->
+      <div class="grid grid-4 mb" id="metric-cards">
+        <div class="metric hr"><div class="label"><i data-lucide="heart-pulse"></i> Heart rate</div>
+          <div class="value"><span id="m-hr">—</span><span class="unit">bpm</span></div>
+          <div class="meta" id="m-hr-meta">waiting for data…</div></div>
+        <div class="metric spo2"><div class="label"><i data-lucide="droplets"></i> SpO₂ estimate</div>
+          <div class="value"><span id="m-spo2">—</span><span class="unit">%</span></div>
+          <div class="meta">MAX30102 estimate — confirm with clinical-grade equipment</div></div>
+        <div class="metric temp"><div class="label"><i data-lucide="thermometer"></i> Ambient temperature</div>
+          <div class="value"><span id="m-temp">—</span><span class="unit">°C</span></div>
+          <div class="meta">DHT11 room air — <strong>not</strong> body temperature</div></div>
+        <div class="metric hum"><div class="label"><i data-lucide="cloud-humidity"></i> Ambient humidity</div>
+          <div class="value"><span id="m-hum">—</span><span class="unit">%</span></div>
+          <div class="meta">DHT11 room humidity</div></div>
+      </div>
+
+      <div class="grid grid-4 mb">
+        <div class="metric" style="border:1px dashed #f59e0b;"><div class="label"><i data-lucide="gauge"></i> <strong>SIMULATED BP</strong></div>
+          <div class="value"><span id="m-bp">—</span><span class="unit">mmHg</span></div>
+          <div class="meta">Potentiometer demonstration value — <strong>NOT</strong> a real blood-pressure measurement</div></div>
+        <div class="metric"><div class="label"><i data-lucide="hand"></i> Finger detection</div>
+          <div class="value" style="font-size:1.4rem;"><span id="m-finger">—</span></div>
+          <div class="meta" id="m-valid-meta">hr_valid / spo2_valid</div></div>
+        <div class="metric"><div class="label"><i data-lucide="bell-ring"></i> Device buzzer</div>
+          <div class="value" style="font-size:1.4rem;"><span id="m-buzzer">—</span></div>
+          <div class="meta">Alert state reported by the ESP8266</div></div>
+        <div class="metric"><div class="label"><i data-lucide="radio"></i> Direct sensor link</div>
+          <div class="value" style="font-size:1rem;"><span id="m-directip">—</span></div>
+          <div class="meta">ESP IP configured on the Devices page</div></div>
+      </div>
+
+      <div class="grid grid-3 mb">
+        <div class="card">
+          <div class="card-head"><h3><i data-lucide="cpu"></i> Connection</h3></div>
+          <table class="data"><tbody>
+            <tr><td>Device</td><td class="right mono" id="d-uid">—</td></tr>
+            <tr><td>Status</td><td class="right" id="d-status">—</td></tr>
+            <tr><td>Last seen</td><td class="right dim" id="d-seen">—</td></tr>
+            <tr><td>Last reading</td><td class="right dim" id="d-last">—</td></tr>
+            <tr><td>Signal quality</td><td class="right" id="d-quality">—</td></tr>
+            <tr><td>Server time</td><td class="right dim" id="d-server">—</td></tr>
+          </tbody></table>
+        </div>
+        <div class="card" style="grid-column: span 2;">
+          <div class="card-head"><h3><i data-lucide="brain-circuit"></i> Explainable risk assessment</h3>
+            <span id="risk-badge" class="badge low">low</span></div>
+          <div class="ring-wrap">
+            <div class="ring low" id="risk-ring" style="--pct:0%"><span id="risk-score">0</span></div>
+            <div style="flex:1;">
+              <ul class="reasons" id="risk-reasons"><li>Waiting for assessment…</li></ul>
+              <p class="text-xs muted" id="risk-time"></p>
+            </div>
+          </div>
+          <p class="text-xs muted">Rule-based prototype priorities (Low/Moderate/High/Critical). Not a trained ML model,
+          not a diagnosis, and a “Low” priority is never proof of safety.</p>
+        </div>
+      </div>
+
+      <!-- Charts -->
+      <div class="grid grid-2 mb">
+        <div class="card">
+          <div class="card-head"><h3><i data-lucide="heart-pulse"></i> Heart-rate trend</h3></div>
+          <div class="chart-box"><canvas id="chart-hr"></canvas></div>
+        </div>
+        <div class="card">
+          <div class="card-head"><h3><i data-lucide="droplets"></i> SpO₂ trend</h3></div>
+          <div class="chart-box"><canvas id="chart-spo2"></canvas></div>
+        </div>
+        <div class="card">
+          <div class="card-head"><h3><i data-lucide="thermometer"></i> Ambient temperature trend</h3></div>
+          <div class="chart-box"><canvas id="chart-temp"></canvas></div>
+        </div>
+        <div class="card">
+          <div class="card-head"><h3><i data-lucide="cloud-humidity"></i> Humidity trend</h3></div>
+          <div class="chart-box"><canvas id="chart-hum"></canvas></div>
+        </div>
+      </div>
+
+      <div class="card mb">
+        <div class="card-head">
+          <h3><i data-lucide="calendar-range"></i> Historical data</h3>
+          <div class="row">
+            <label class="field" style="margin:0;">From <input type="datetime-local" id="range-start"></label>
+            <label class="field" style="margin:0;">To <input type="datetime-local" id="range-end"></label>
+            <button class="btn secondary sm" id="range-apply"><i data-lucide="filter"></i> Apply</button>
+          </div>
+        </div>
+        <p class="text-xs muted mb">Invalid and missing values are stored as gaps — reports never interpolate or invent measurements.
+        Simulated test readings are excluded from charts by default.</p>
+        <div class="table-wrap">
+          <table class="data">
+            <thead><tr><th>Time</th><th>HR</th><th>SpO₂</th><th>Ambient °C</th><th>Humidity %</th><th>Quality</th><th>Valid</th><th>Source</th><th>Notes</th></tr></thead>
+            <tbody id="history-tbody"><tr><td colspan="9" class="center muted"><div class="spinner"></div></td></tr></tbody>
+          </table>
+        </div>
+      </div>
+
+      <div class="grid grid-2 mb">
+        <div class="card">
+          <div class="card-head"><h3><i data-lucide="siren"></i> Alert timeline</h3></div>
+          <div id="alert-timeline"><div class="spinner"></div></div>
+        </div>
+        <div class="card">
+          <div class="card-head"><h3><i data-lucide="notebook-pen"></i> Doctor notes &amp; acknowledgement history</h3></div>
+          <div id="notes-list" class="mb"><div class="spinner"></div></div>
+          <form id="note-form" class="hidden">
+            <label class="field">Add clinical note
+              <textarea id="note-text" placeholder="Observations, plan, handover notes…" maxlength="8000"></textarea>
+            </label>
+            <button class="btn sm" type="submit"><i data-lucide="plus"></i> Save note</button>
+          </form>
+          <div id="stroke-panel" class="hidden mt">
+            <hr style="border:none;border-top:1px solid var(--border);margin:1rem 0;">
+            <h3><i data-lucide="brain"></i> Possible stroke indicators (clinician entry)</h3>
+            <p class="text-xs muted">FAST-style structured entry. Any indicator raises an immediate urgent clinical
+            assessment warning. <strong>The ESP32 sensors cannot detect stroke</strong> — this form is clinician-driven.</p>
+            <form id="stroke-form">
+              <label class="checkbox-line"><input type="checkbox" id="s-face"> Facial asymmetry</label>
+              <label class="checkbox-line"><input type="checkbox" id="s-limb"> One-sided arm or leg weakness</label>
+              <label class="checkbox-line"><input type="checkbox" id="s-speech"> Speech difficulty</label>
+              <label class="checkbox-line"><input type="checkbox" id="s-neuro"> Sudden neurological change</label>
+              <label class="field">Additional detail
+                <input type="text" id="s-text" maxlength="2000" placeholder="Onset time, context…">
+              </label>
+              <button class="btn danger sm" type="submit"><i data-lucide="siren"></i> Record &amp; raise urgent warning</button>
+            </form>
+          </div>
+        </div>
+      </div>
+
+      <p class="text-xs muted">
+        Prototype monitoring only — not a substitute for hospital alarm equipment, clinical assessment or emergency care.
+      </p>
+    </div>
+  </div>
+</div>
+
+<script src="/assets/js/vendor/lucide.min.js"></script>
+<script src="/assets/js/vendor/chart.umd.min.js"></script>
+<script src="/assets/js/core.js"></script>
+<script src="/assets/js/app.js"></script>
+<script>
+"use strict";
+let PATIENT_ID = null;
+let ME = null;
+let conn = null;
+const charts = { hr: null, spo2: null, temp: null, hum: null };
+
+function qs(name) { return new URLSearchParams(location.search).get(name); }
+
+function resolvePatientId(me) {
+  if (me.user.role === "patient") return Promise.resolve(me.user.id);
+  const idParam = qs("id");
+  if (idParam) return Promise.resolve(parseInt(idParam, 10));
+  // fall back to first assigned patient
+  return ICU.get("/doctors/patients").then((list) => {
+    if (!list.length) throw new Error("No patients are available to monitor. Ask an administrator to assign patients to you.");
+    return list[0].user_id;
+  });
+}
+
+async function loadPatientPicker(me, currentId) {
+  if (me.user.role === "patient") { document.getElementById("patient-picker-wrap").style.display = "none"; return; }
+  const list = await ICU.get("/doctors/patients");
+  const sel = document.getElementById("patient-picker");
+  sel.innerHTML = list.map((p) => `<option value="${p.user_id}" ${p.user_id === currentId ? "selected" : ""}>
+    ${ICU.esc(p.full_name)} (#${p.user_id})</option>`).join("");
+  sel.addEventListener("change", () => {
+    location.href = "/patient_monitor.html?id=" + sel.value;
+  });
+}
+
+async function loadHistory() {
+  const params = { limit: 400 };
+  const start = document.getElementById("range-start").value;
+  const end = document.getElementById("range-end").value;
+  if (start) params.start = new Date(start).toISOString();
+  if (end) params.end = new Date(end).toISOString();
+  const data = await ICU.get(`/patients/${PATIENT_ID}/readings`, params);
+  const rows = (data.readings || []).slice().reverse();
+
+  // charts — null for invalid/missing so Chart.js leaves visible gaps
+  const labels = rows.map((r) => ICU.fmtClock(r.received_at));
+  const mk = (key, sel, color, unit, min, max, extract) => {
+    if (charts[key]) ICU.destroyChart(charts[key]);
+    charts[key] = ICU.makeChart(document.getElementById(sel), labels, rows.map(extract),
+      { color, unit, fill: true, min, max });
+  };
+  mk("hr", "chart-hr", ICU.CHART_COLORS.hr, "bpm", 25, undefined,
+     (r) => (r.is_valid && r.heart_rate != null ? r.heart_rate : null));
+  mk("spo2", "chart-spo2", ICU.CHART_COLORS.spo2, "%", 50, 101,
+     (r) => (r.is_valid && r.spo2 != null ? r.spo2 : null));
+  mk("temp", "chart-temp", ICU.CHART_COLORS.temp, "°C", undefined, undefined,
+     (r) => (r.ambient_temperature != null ? r.ambient_temperature : null));
+  mk("hum", "chart-hum", ICU.CHART_COLORS.hum, "%", 0, 100,
+     (r) => (r.ambient_humidity != null ? r.ambient_humidity : null));
+
+  const tbody = document.getElementById("history-tbody");
+  const recent = rows.slice(-120).reverse();
+  tbody.innerHTML = recent.map((r) => `<tr>
+    <td class="dim">${ICU.fmtTime(r.received_at)}</td>
+    <td class="num">${r.is_valid && r.heart_rate != null ? ICU.num(r.heart_rate) : `<span class="muted">gap</span>`}</td>
+    <td class="num">${r.is_valid && r.spo2 != null ? ICU.num(r.spo2) : `<span class="muted">gap</span>`}</td>
+    <td class="num">${r.ambient_temperature != null ? ICU.num(r.ambient_temperature, 1) : "—"}</td>
+    <td class="num">${r.ambient_humidity != null ? ICU.num(r.ambient_humidity) : "—"}</td>
+    <td>${ICU.qualityBadge(r.signal_quality)}</td>
+    <td>${r.is_valid ? `<span class="badge ok">valid</span>` : `<span class="badge invalid">invalid</span>`}</td>
+    <td>${r.is_simulated ? ICU.simBadge(true) : `<span class="badge neutral">device</span>`}</td>
+    <td class="dim" style="white-space:normal;max-width:260px;">${ICU.esc(r.validity_notes || "")}</td>
+  </tr>`).join("") || `<tr><td colspan="9" class="center muted">No readings in this range</td></tr>`;
+}
+
+async function loadAlerts() {
+  const data = await ICU.get(`/patients/${PATIENT_ID}/alerts`, { limit: 40 });
+  const el = document.getElementById("alert-timeline");
+  const alerts = data.alerts || [];
+  if (!alerts.length) {
+    el.innerHTML = `<div class="state-box"><i data-lucide="circle-check"></i><div>No alerts recorded</div></div>`;
+    ICU.icons();
+    return;
+  }
+  el.innerHTML = `<ul class="timeline">${alerts.map((a) => `
+    <li class="${a.severity === "critical" || a.severity === "high" ? "crit" : ""}">
+      <div class="t">${ICU.fmtTime(a.created_at)} · <span class="badge neutral">${ICU.esc(a.category)}</span>
+        ${ICU.sevBadge(a.severity)} ${ICU.simBadge(a.is_simulated)}</div>
+      <div class="d"><strong>${ICU.esc(a.title)}</strong></div>
+      <div class="text-sm muted" style="white-space:normal;">${ICU.esc(a.message)}</div>
+      <div class="text-xs muted">status: ${ICU.esc(a.status)}${a.resolved_at ? " · resolved " + ICU.fmtTime(a.resolved_at) : ""}${a.resolution_notes ? " — " + ICU.esc(a.resolution_notes) : ""}</div>
+    </li>`).join("")}</ul>`;
+  ICU.icons();
+}
+
+async function loadNotes() {
+  const notes = await ICU.get(`/patients/${PATIENT_ID}/notes`);
+  const el = document.getElementById("notes-list");
+  if (!notes.length) {
+    el.innerHTML = `<div class="state-box" style="padding:1rem;"><div>No notes yet</div></div>`;
+  } else {
+    el.innerHTML = notes.map((n) => `<div class="alert-item low" style="margin-bottom:.5rem;">
+      <div class="text-xs muted">${ICU.fmtTime(n.created_at)} · note #${n.id}</div>
+      <div class="msg" style="color:var(--text);">${ICU.esc(n.note_text)}</div>
+    </div>`).join("");
+  }
+  const canNote = ME.user.role === "doctor" || ME.user.role === "admin";
+  document.getElementById("note-form").classList.toggle("hidden", !canNote);
+  document.getElementById("stroke-panel").classList.toggle("hidden", !canNote);
+}
+
+async function loadDevice() {
+  try {
+    const s = await ICU.get(`/patients/${PATIENT_ID}/summary`);
+    document.getElementById("patient-name").textContent = s.patient.full_name;
+    document.getElementById("patient-meta").innerHTML =
+      `Patient #${s.patient.user_id} · ${ICU.esc(s.patient.email)} ·
+       ${ICU.esc((s.profile && s.profile.ward) || "no ward")}/${ICU.esc((s.profile && s.profile.bed_label) || "—")}`;
+    document.getElementById("d-uid").textContent = s.device.device_uid || "not assigned";
+    document.getElementById("d-status").innerHTML = s.device.device_uid
+      ? `<span class="badge ${s.device.online ? "online" : "offline"}">${s.device.online ? "online" : "offline"}</span>`
+      : `<span class="badge neutral">no device</span>`;
+    document.getElementById("d-seen").textContent = ICU.fmtTime(s.device.last_seen_at);
+    const ipEl = document.getElementById("m-directip");
+    if (ipEl) ipEl.textContent = s.device.ip_address || "not set";
+  } catch (e) {
+    ICU.toast(e.message, "error");
+  }
+}
+
+function applyLive(data) {
+  const r = data.reading || {};
+  const set = (id, v) => { const el = document.getElementById(id); if (el) el.textContent = v; };
+  const invalid = r && r.is_valid === false;
+  set("m-hr", r && r.heart_rate != null ? ICU.num(r.heart_rate) : "—");
+  set("m-spo2", r && r.spo2 != null ? ICU.num(r.spo2) : "—");
+  set("m-temp", r && r.ambient_temperature != null ? ICU.num(r.ambient_temperature, 1) : "—");
+  set("m-hum", r && r.ambient_humidity != null ? ICU.num(r.ambient_humidity) : "—");
+  const hrMeta = document.getElementById("m-hr-meta");
+  if (hrMeta) {
+    hrMeta.innerHTML = r
+      ? `${ICU.qualityBadge(r.signal_quality)} ${ICU.simBadge(r.is_simulated)}`
+      : "waiting for data…";
+  }
+
+  // Blood pressure is SIMULATED (potentiometer) — labelled as such everywhere.
+  const bpEl = document.getElementById("m-bp");
+  if (bpEl) {
+    if (r && (r.systolic_bp != null || r.diastolic_bp != null)) {
+      bpEl.textContent = `${r.systolic_bp != null ? ICU.num(r.systolic_bp) : "—"}/${r.diastolic_bp != null ? ICU.num(r.diastolic_bp) : "—"}`;
+    } else { bpEl.textContent = "—"; }
+  }
+  const fingerEl = document.getElementById("m-finger");
+  if (fingerEl) {
+    fingerEl.textContent = r && r.finger_present === true ? "DETECTED"
+      : (r && r.finger_present === false ? "NOT DETECTED" : "—");
+  }
+  const validMeta = document.getElementById("m-valid-meta");
+  if (validMeta) {
+    validMeta.textContent = r ? `hr_valid: ${r.hr_valid} · spo2_valid: ${r.spo2_valid}` : "hr_valid / spo2_valid";
+  }
+  const buzzerEl = document.getElementById("m-buzzer");
+  if (buzzerEl) {
+    buzzerEl.innerHTML = r && r.buzzer_alert
+      ? `<span class="badge critical">ALERT</span>` : `<span class="badge neutral">OFF</span>`;
+  }
+
+  document.getElementById("stale-banner").style.display = data.stale ? "" : "none";
+  document.getElementById("sim-banner").style.display = (r && r.is_simulated) ? "" : "none";
+  document.querySelectorAll("#metric-cards .metric").forEach((m) => m.classList.toggle("alerting", invalid));
+
+  set("d-last", ICU.fmtTime(r && r.received_at));
+  set("d-server", ICU.fmtClock(data.server_time));
+  const qEl = document.getElementById("d-quality");
+  if (qEl) qEl.innerHTML = r ? ICU.qualityBadge(r.signal_quality) : "—";
+
+  const risk = data.risk || {};
+  const badge = document.getElementById("risk-badge");
+  badge.className = "badge " + (risk.category || "low");
+  badge.textContent = risk.category || "low";
+  document.getElementById("risk-score").textContent = Math.round(risk.score || 0);
+  const ring = document.getElementById("risk-ring");
+  ring.className = "ring " + (risk.category || "low");
+  ring.style.setProperty("--pct", Math.max(4, Math.round(risk.score || 0)) + "%");
+  document.getElementById("risk-reasons").innerHTML =
+    (risk.reasons || []).map((x) => `<li>${ICU.esc(x)}</li>`).join("") || "<li>No assessment yet.</li>";
+  document.getElementById("risk-time").textContent = risk.assessed_at ? "Assessed at " + ICU.fmtTime(risk.assessed_at) : "";
+}
+
+(async function boot() {
+  ME = await ICUShell.init({ title: "Live Monitoring", active: "/patient_monitor.html",
+                             roles: ["admin", "doctor", "patient"] });
+  if (!ME) return;
+  try {
+    PATIENT_ID = await resolvePatientId(ME);
+  } catch (e) {
+    document.querySelector(".content").innerHTML =
+      `<div class="state-box"><i data-lucide="circle-alert"></i><div>${ICU.esc(e.message)}</div></div>`;
+    ICU.icons();
+    return;
+  }
+
+  await Promise.all([loadPatientPicker(ME, PATIENT_ID), loadDevice(), loadHistory(), loadAlerts(), loadNotes()]);
+
+  document.getElementById("range-apply").addEventListener("click", () => loadHistory().catch((e) => ICU.toast(e.message, "error")));
+  document.getElementById("export-btn").addEventListener("click", () => {
+    window.open(`/api/v1/patients/${PATIENT_ID}/export`, "_blank");
+  });
+
+  document.getElementById("note-form").addEventListener("submit", async (e) => {
+    e.preventDefault();
+    const text = document.getElementById("note-text").value.trim();
+    if (!text) return;
+    try {
+      await ICU.post(`/patients/${PATIENT_ID}/notes`, { patient_user_id: PATIENT_ID, note_text: text });
+      document.getElementById("note-text").value = "";
+      ICU.toast("Note saved", "success");
+      await loadNotes();
+    } catch (err) { ICU.toast(err.message, "error"); }
+  });
+
+  document.getElementById("stroke-form").addEventListener("submit", async (e) => {
+    e.preventDefault();
+    const body = {
+      patient_user_id: PATIENT_ID,
+      facial_asymmetry: document.getElementById("s-face").checked,
+      one_sided_weakness: document.getElementById("s-limb").checked,
+      speech_difficulty: document.getElementById("s-speech").checked,
+      sudden_neuro_change: document.getElementById("s-neuro").checked,
+      free_text: document.getElementById("s-text").value.trim() || null,
+    };
+    if (!body.facial_asymmetry && !body.one_sided_weakness && !body.speech_difficulty && !body.sudden_neuro_change) {
+      ICU.toast("Select at least one indicator", "warn"); return;
+    }
+    if (!confirm("Record these possible stroke indicators? An URGENT critical warning will be raised immediately.")) return;
+    try {
+      await ICU.post("/stroke-symptoms", body);
+      ICU.toast("Urgent stroke-suspect warning raised", "warn");
+      await loadAlerts();
+      await conn.refresh();
+    } catch (err) { ICU.toast(err.message, "error"); }
+  });
+
+  conn = ICU.live(PATIENT_ID, (data) => {
+    applyLive(data);
+    if (data.active_alerts && data.active_alerts.length) {
+      // refresh timeline lazily when the alert set changes
+      const sig = data.active_alerts.map((a) => a.id).join(",");
+      if (sig !== conn._sig) { conn._sig = sig; loadAlerts(); }
+    }
+  });
+  ICU.icons();
+})();
+</script>
+</body>
+</html>

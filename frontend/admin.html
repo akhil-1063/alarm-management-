@@ -1,0 +1,299 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Administration — ICU Sentinel</title>
+  <link rel="stylesheet" href="/assets/css/styles.css">
+</head>
+<body>
+<div class="layout">
+  <div class="main" id="main">
+    <header class="topbar">
+      <button class="hamburger" id="hamburger" aria-label="Toggle navigation"><i data-lucide="menu"></i></button>
+      <h1 id="topbar-title">Administration &amp; Audit</h1>
+      <div class="spacer"></div>
+      <button class="btn secondary sm" id="icu-theme" aria-label="Toggle theme"><i data-lucide="moon"></i></button>
+    </header>
+
+    <div class="content">
+      <div class="tabs" id="admin-tabs">
+        <button class="active" data-tab="users">Users</button>
+        <button data-tab="tests">Developer test panel</button>
+        <button data-tab="settings">Risk thresholds</button>
+        <button data-tab="audit">Audit logs</button>
+        <button data-tab="health">System health</button>
+      </div>
+
+      <!-- USERS -->
+      <section class="tab-panel active" data-panel="users">
+        <div class="card mb">
+          <div class="card-head"><h2><i data-lucide="user-plus"></i> Create account (admin-issued)</h2></div>
+          <form id="create-form" class="row" style="align-items:flex-end;">
+            <label class="field">Name <input type="text" id="c-name" required></label>
+            <label class="field">Email <input type="email" id="c-email" required></label>
+            <label class="field">Role
+              <select id="c-role"><option value="doctor">Doctor</option><option value="patient">Patient</option><option value="admin">Admin</option></select>
+            </label>
+            <label class="field">Password (min 10) <input type="password" id="c-pass" required minlength="10"></label>
+            <button class="btn" type="submit"><i data-lucide="plus"></i> Create</button>
+          </form>
+          <p class="text-xs muted">Doctors created this way still require explicit approval before they can sign in.</p>
+        </div>
+        <div class="card">
+          <div class="card-head"><h2><i data-lucide="users"></i> All accounts</h2>
+            <button class="btn secondary sm" id="users-refresh"><i data-lucide="refresh-cw"></i> Refresh</button></div>
+          <div class="filter-bar">
+            <label class="field">Role
+              <select id="u-role"><option value="">All</option><option value="admin">admin</option><option value="doctor">doctor</option><option value="patient">patient</option></select>
+            </label>
+          </div>
+          <div class="table-wrap">
+            <table class="data">
+              <thead><tr><th>ID</th><th>Name</th><th>Email</th><th>Role</th><th>Status</th><th>Last login</th><th></th></tr></thead>
+              <tbody id="users-tbody"><tr><td colspan="7" class="center muted"><div class="spinner"></div></td></tr></tbody>
+            </table>
+          </div>
+        </div>
+      </section>
+
+      <!-- TEST PANEL -->
+      <section class="tab-panel" data-panel="tests">
+        <div class="banner warn">
+          <i data-lucide="flask-conical"></i>
+          <div><strong>Simulated data only.</strong> Scenario readings are stored with <span class="mono">is_simulated=True</span>
+          and are visibly labelled everywhere. They are excluded from real-measurement statistics and can be deleted
+          with one click without touching real ESP32 data.</div>
+        </div>
+        <div class="card mb">
+          <div class="card-head"><h2><i data-lucide="play"></i> Run a named scenario</h2></div>
+          <div class="filter-bar">
+            <label class="field" style="min-width:250px;">Scenario
+              <select id="sc-select"></select></label>
+            <label class="field" style="min-width:230px;">Target device
+              <select id="sc-device"></select></label>
+            <button class="btn primary" id="sc-run"><i data-lucide="play"></i> Run</button>
+            <button class="btn secondary" id="sc-clear"><i data-lucide="trash-2"></i> Clear simulated data for device's patient</button>
+          </div>
+          <p class="text-xs muted" id="sc-desc"></p>
+          <pre id="sc-result" class="mono" style="background:var(--slate-100);padding:.8rem;border-radius:8px;white-space:pre-wrap;"></pre>
+        </div>
+      </section>
+
+      <!-- SETTINGS -->
+      <section class="tab-panel" data-panel="settings">
+        <div class="card">
+          <div class="card-head"><h2><i data-lucide="sliders-horizontal"></i> Configurable risk thresholds</h2></div>
+          <p class="text-sm muted mb">Stored overrides apply to all future assessments. Leave blank to keep the default.</p>
+          <form id="thr-form" class="grid grid-3">
+            <label class="field">Heart rate low (bpm) <input type="number" step="0.1" id="t-hr_low"></label>
+            <label class="field">Heart rate high (bpm) <input type="number" step="0.1" id="t-hr_high"></label>
+            <label class="field">HR critical low (bpm) <input type="number" step="0.1" id="t-hr_critical_low"></label>
+            <label class="field">HR critical high (bpm) <input type="number" step="0.1" id="t-hr_critical_high"></label>
+            <label class="field">SpO₂ low (%) <input type="number" step="0.1" id="t-spo2_low"></label>
+            <label class="field">SpO₂ critical low (%) <input type="number" step="0.1" id="t-spo2_critical_low"></label>
+            <label class="field">Persistence count (consecutive) <input type="number" step="1" min="1" id="t-abnormal_persist_count"></label>
+          </form>
+          <button class="btn" id="thr-save"><i data-lucide="save"></i> Save changed values</button>
+        </div>
+      </section>
+
+      <!-- AUDIT -->
+      <section class="tab-panel" data-panel="audit">
+        <div class="card">
+          <div class="card-head"><h2><i data-lucide="scroll-text"></i> Audit logs</h2>
+            <button class="btn secondary sm" id="audit-refresh"><i data-lucide="refresh-cw"></i> Refresh</button></div>
+          <div class="table-wrap">
+            <table class="data">
+              <thead><tr><th>Time</th><th>Actor</th><th>Action</th><th>Entity</th><th>Detail</th><th>IP</th></tr></thead>
+              <tbody id="audit-tbody"><tr><td colspan="6" class="center muted"><div class="spinner"></div></td></tr></tbody>
+            </table>
+          </div>
+        </div>
+      </section>
+
+      <!-- HEALTH -->
+      <section class="tab-panel" data-panel="health">
+        <div class="card">
+          <div class="card-head"><h2><i data-lucide="heart-pulse"></i> System health</h2>
+            <button class="btn secondary sm" id="health-refresh"><i data-lucide="refresh-cw"></i> Refresh</button></div>
+          <pre id="health-out" class="mono" style="background:var(--slate-100);padding:.9rem;border-radius:8px;white-space:pre-wrap;"></pre>
+        </div>
+      </section>
+    </div>
+  </div>
+</div>
+
+<script src="/assets/js/vendor/lucide.min.js"></script>
+<script src="/assets/js/core.js"></script>
+<script src="/assets/js/app.js"></script>
+<script>
+"use strict";
+
+/* Tabs */
+document.querySelectorAll("#admin-tabs button").forEach((b) => {
+  b.addEventListener("click", () => {
+    document.querySelectorAll("#admin-tabs button").forEach((x) => x.classList.remove("active"));
+    b.classList.add("active");
+    document.querySelectorAll(".tab-panel").forEach((p) =>
+      p.classList.toggle("active", p.dataset.panel === b.dataset.tab));
+    if (b.dataset.tab === "audit") loadAudit();
+    if (b.dataset.tab === "health") loadHealth();
+    if (b.dataset.tab === "settings") loadSettings();
+    if (b.dataset.tab === "tests") loadScenarios();
+  });
+});
+
+/* ---- Users ---- */
+async function loadUsers() {
+  const role = document.getElementById("u-role").value;
+  const data = await ICU.get("/admin/users", role ? { role } : {});
+  const tbody = document.getElementById("users-tbody");
+  tbody.innerHTML = (data.users || []).map((u) => `<tr>
+    <td class="mono">#${u.id}</td>
+    <td><strong>${ICU.esc(u.full_name)}</strong></td>
+    <td>${ICU.esc(u.email)}</td>
+    <td><span class="badge ${u.role}">${ICU.esc(u.role)}</span></td>
+    <td>${u.is_active
+      ? (u.role === "doctor" && !u.is_approved ? `<span class="badge moderate">pending approval</span>` : `<span class="badge ok">active</span>`)
+      : `<span class="badge critical">deactivated</span>`}</td>
+    <td class="dim">${ICU.fmtTime(u.last_login_at)}</td>
+    <td class="row tight">
+      ${u.role === "doctor" && !u.is_approved && u.is_active
+        ? `<button class="btn sm" data-appr="${u.id}">Approve</button>` : ""}
+      ${u.is_active
+        ? `<button class="btn sm ghost-danger" data-deact="${u.id}">Deactivate</button>`
+        : `<button class="btn sm secondary" data-act="${u.id}">Activate</button>`}
+    </td>
+  </tr>`).join("") || `<tr><td colspan="7" class="center muted">No accounts</td></tr>`;
+
+  tbody.querySelectorAll("[data-appr]").forEach((b) => b.addEventListener("click", async () => {
+    await ICU.post(`/admin/doctors/${b.dataset.appr}/approve`);
+    ICU.toast("Doctor approved", "success"); loadUsers();
+  }));
+  tbody.querySelectorAll("[data-deact]").forEach((b) => b.addEventListener("click", async () => {
+    if (!confirm("Deactivate this account?")) return;
+    try { await ICU.post(`/admin/users/${b.dataset.deact}/deactivate`); ICU.toast("Deactivated", "warn"); loadUsers(); }
+    catch (e) { ICU.toast(e.message, "error"); }
+  }));
+  tbody.querySelectorAll("[data-act]").forEach((b) => b.addEventListener("click", async () => {
+    await ICU.post(`/admin/users/${b.dataset.act}/activate`);
+    ICU.toast("Activated", "success"); loadUsers();
+  }));
+  ICU.icons();
+}
+
+document.getElementById("u-role").addEventListener("change", loadUsers);
+document.getElementById("users-refresh").addEventListener("click", loadUsers);
+document.getElementById("create-form").addEventListener("submit", async (e) => {
+  e.preventDefault();
+  try {
+    const res = await ICU.post("/admin/users/create", {
+      full_name: document.getElementById("c-name").value.trim(),
+      email: document.getElementById("c-email").value.trim(),
+      role: document.getElementById("c-role").value,
+      password: document.getElementById("c-pass").value,
+    });
+    ICU.toast(`Account created for ${res.email}${res.is_approved ? "" : " (needs approval)"}`, "success");
+    document.getElementById("create-form").reset();
+    await loadUsers();
+  } catch (err) { ICU.toast(err.message, "error"); }
+});
+
+/* ---- Test panel ---- */
+let SCENARIOS = [];
+async function loadScenarios() {
+  const [sc, devices] = await Promise.all([ICU.get("/test/scenarios"), ICU.get("/devices")]);
+  SCENARIOS = sc.scenarios || [];
+  document.getElementById("sc-select").innerHTML =
+    SCENARIOS.map((s) => `<option value="${s.id}">${ICU.esc(s.id)}</option>`).join("");
+  document.getElementById("sc-device").innerHTML =
+    devices.map((d) => `<option value="${d.device_uid}">${ICU.esc(d.device_uid)}${d.patient_user_id ? " (assigned)" : ""}</option>`).join("")
+    || `<option value="">(no devices — register one first)</option>`;
+  updateScDesc();
+  ICU.icons();
+}
+function updateScDesc() {
+  const s = SCENARIOS.find((x) => x.id === document.getElementById("sc-select").value);
+  document.getElementById("sc-desc").textContent = s ? s.description : "";
+}
+document.getElementById("sc-select").addEventListener("change", updateScDesc);
+document.getElementById("sc-run").addEventListener("click", async () => {
+  const scenario = document.getElementById("sc-select").value;
+  const deviceUid = document.getElementById("sc-device").value || null;
+  try {
+    const res = await ICU.post("/test/scenarios", { scenario, device_uid: deviceUid });
+    document.getElementById("sc-result").textContent = JSON.stringify(res, null, 2);
+    ICU.toast(`Scenario '${scenario}' executed (simulated)`, "success");
+  } catch (e) { ICU.toast(e.message, "error"); document.getElementById("sc-result").textContent = e.message; }
+});
+document.getElementById("sc-clear").addEventListener("click", async () => {
+  const deviceUid = document.getElementById("sc-device").value;
+  if (!deviceUid) return;
+  try {
+    const devices = await ICU.get("/devices");
+    const d = devices.find((x) => x.device_uid === deviceUid);
+    if (!d || !d.patient_user_id) { ICU.toast("Selected device has no assigned patient", "warn"); return; }
+    const res = await ICU.post(`/test/clear-simulated/${d.patient_user_id}`);
+    document.getElementById("sc-result").textContent = JSON.stringify(res, null, 2);
+    ICU.toast("Simulated data cleared (real data untouched)", "success");
+  } catch (e) { ICU.toast(e.message, "error"); }
+});
+
+/* ---- Settings ---- */
+const THR_FIELDS = ["hr_low", "hr_high", "hr_critical_low", "hr_critical_high", "spo2_low", "spo2_critical_low", "abnormal_persist_count"];
+async function loadSettings() {
+  const data = await ICU.get("/admin/settings");
+  THR_FIELDS.forEach((f) => {
+    const ov = data.overrides && data.overrides[f];
+    document.getElementById("t-" + f).placeholder = "default: " + data.defaults[f];
+    document.getElementById("t-" + f).value = ov ? ov.value : "";
+  });
+  ICU.icons();
+}
+document.getElementById("thr-save").addEventListener("click", async () => {
+  let saved = 0;
+  for (const f of THR_FIELDS) {
+    const v = document.getElementById("t-" + f).value.trim();
+    if (!v) continue;
+    try { await ICU.post("/admin/settings", { key: f, value: v }); saved++; }
+    catch (e) { ICU.toast(`${f}: ${e.message}`, "error"); }
+  }
+  ICU.toast(saved ? `${saved} threshold(s) updated` : "No changes to save", saved ? "success" : "info");
+});
+
+/* ---- Audit ---- */
+async function loadAudit() {
+  const rows = await ICU.get("/admin/audit-logs", { limit: 300 });
+  document.getElementById("audit-tbody").innerHTML = rows.map((e) => `<tr>
+    <td class="dim">${ICU.fmtTime(e.created_at)}</td>
+    <td>${ICU.esc(e.actor_label)}</td>
+    <td><span class="badge neutral">${ICU.esc(e.action)}</span></td>
+    <td class="dim">${ICU.esc(e.entity_type || "")} ${ICU.esc(e.entity_id || "")}</td>
+    <td style="white-space:normal;max-width:380px;" class="dim">${ICU.esc((e.detail || "").slice(0, 200))}</td>
+    <td class="dim mono">${ICU.esc(e.ip_address || "")}</td>
+  </tr>`).join("") || `<tr><td colspan="6" class="center muted">No audit entries</td></tr>`;
+}
+document.getElementById("audit-refresh").addEventListener("click", loadAudit);
+
+/* ---- Health ---- */
+async function loadHealth() {
+  try {
+    const [h, s] = await Promise.all([ICU.get("/admin/system-health"), ICU.get("/health")]);
+    document.getElementById("health-out").textContent = JSON.stringify({ health: s, details: h }, null, 2);
+  } catch (e) { document.getElementById("health-out").textContent = e.message; }
+}
+document.getElementById("health-refresh").addEventListener("click", loadHealth);
+
+/* Boot */
+(async function boot() {
+  const me = await ICUShell.init({ title: "Administration & Audit", active: "/admin.html", roles: ["admin"] });
+  if (!me) return;
+  if (location.hash === "#tests") document.querySelector('[data-tab="tests"]').click();
+  else if (location.hash === "#audit") document.querySelector('[data-tab="audit"]').click();
+  await loadUsers();
+  await loadScenarios();
+})();
+</script>
+</body>
+</html>

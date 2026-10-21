@@ -1,0 +1,112 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>ICU Sentinel — AI-Based Real-Time ICU Patient Monitoring</title>
+  <link rel="stylesheet" href="/assets/css/styles.css">
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%2314b8a6' stroke-width='2'><path d='M22 12h-4l-3 9L9 3l-3 9H2'/></svg>">
+</head>
+<body>
+
+<header class="hero">
+  <div class="row between" style="max-width:1150px;margin:0 auto 2rem;padding:0 1.2rem;">
+    <div class="row tight">
+      <div class="logo" style="width:40px;height:40px;border-radius:11px;background:linear-gradient(135deg,#14b8a6,#2563eb);display:grid;place-items:center;">
+        <i data-lucide="heart-pulse" style="color:#fff;"></i>
+      </div>
+      <strong style="color:#fff;">ICU Sentinel</strong>
+    </div>
+    <nav class="row tight">
+      <a href="/login.html" class="btn secondary" style="background:rgba(255,255,255,.08);color:#e2e8f0;border-color:rgba(255,255,255,.2);">Sign in</a>
+      <a href="/register.html" class="btn">Register</a>
+    </nav>
+  </div>
+
+  <h1>AI-Based Real-Time ICU Alarm Management &amp; Patient Monitoring System</h1>
+  <p class="lead">
+    ESP32 + MAX30102 + DHT11 bedside acquisition, explainable multi-parameter early-warning logic,
+    secure doctor/patient workspaces and live dashboards — running entirely on your local machine.
+  </p>
+  <div class="cta">
+    <a href="/login.html" class="btn primary"><i data-lucide="log-in"></i> Sign in to dashboard</a>
+    <a href="/register.html" class="btn secondary" style="background:rgba(255,255,255,.1);color:#fff;border-color:rgba(255,255,255,.25);">
+      <i data-lucide="user-plus"></i> Create patient account
+    </a>
+  </div>
+</header>
+
+<div class="feature-strip grid grid-4">
+  <div class="card feature-card">
+    <i data-lucide="cpu"></i>
+    <h3 class="mt">ESP32 Acquisition</h3>
+    <p class="muted text-sm">MAX30102 heart-rate &amp; SpO₂ estimates with signal-quality gating, DHT11 ambient temperature &amp; humidity, authenticated HTTP ingestion over your phone hotspot.</p>
+  </div>
+  <div class="card feature-card">
+    <i data-lucide="brain-circuit"></i>
+    <h3 class="mt">Explainable Early Warning</h3>
+    <p class="muted text-sm">Two-layer validation + rule-based risk engine: thresholds, persistence, hysteresis, deduplication — with a written reason attached to every warning.</p>
+  </div>
+  <div class="card feature-card">
+    <i data-lucide="shield-check"></i>
+    <h3 class="mt">Role-Based Access</h3>
+    <p class="muted text-sm">Server-side patient data isolation, doctor–patient assignment enforcement, per-device credentials, login throttling and full audit logging.</p>
+  </div>
+  <div class="card feature-card">
+    <i data-lucide="line-chart"></i>
+    <h3 class="mt">Live Dashboards &amp; Reports</h3>
+    <p class="muted text-sm">WebSocket live vitals with polling fallback, gap-aware trend charts, alert timelines, CSV export and device uptime analytics.</p>
+  </div>
+</div>
+
+<section class="landing-section">
+  <h2>How the system works</h2>
+  <div class="grid grid-4">
+    <div class="card">
+      <span class="badge neutral">Step 1</span>
+      <h3 class="mt">Connect hardware</h3>
+      <p class="muted text-sm">Enable your phone hotspot, connect the laptop and the ESP32 to it, and configure the laptop's hotspot IPv4 address in the firmware config.</p>
+    </div>
+    <div class="card">
+      <span class="badge neutral">Step 2</span>
+      <h3 class="mt">Register &amp; assign</h3>
+      <p class="muted text-sm">Administrators register devices and issue doctor accounts; each device is assigned to exactly one patient so readings can never cross records.</p>
+    </div>
+    <div class="card">
+      <span class="badge neutral">Step 3</span>
+      <h3 class="mt">Stream readings</h3>
+      <p class="muted text-sm">The ESP32 POSTs validated JSON to <span class="mono">/api/v1/ingest</span>. The backend authenticates the device, timestamps and stores the data.</p>
+    </div>
+    <div class="card">
+      <span class="badge neutral">Step 4</span>
+      <h3 class="mt">Warn &amp; respond</h3>
+      <p class="muted text-sm">The risk engine raises explainable alerts, dashboards update live, and clinicians acknowledge, annotate and resolve with a complete event history.</p>
+    </div>
+  </div>
+</section>
+
+<section class="landing-section">
+  <div class="banner warn">
+    <i data-lucide="triangle-alert"></i>
+    <div>
+      <strong>Research &amp; educational prototype.</strong> This application is <em>not</em> a clinically validated
+      diagnostic device, not a substitute for hospital alarm equipment, and not a substitute for professional
+      medical assessment or emergency care. Do not use it with real patient data without appropriate
+      authorisation and safeguards. Ambient temperature from the DHT11 is <strong>room air, not body temperature</strong>.
+    </div>
+  </div>
+</section>
+
+<footer class="landing-section center" style="border-top:1px solid var(--border);padding-top:1.4rem;color:var(--text-dim);font-size:.82rem;">
+  <p>ICU Sentinel · Local FastAPI + SQLite + ESP32 prototype · Not compliant with medical-device or healthcare-privacy regulations by default.</p>
+  <p>
+    <a href="/privacy.html">Privacy &amp; medical-safety information</a> ·
+    <a href="/login.html">Staff &amp; patient login</a>
+  </p>
+</footer>
+
+<script src="/assets/js/vendor/lucide.min.js"></script>
+<script src="/assets/js/core.js"></script>
+<script>ICU.icons();</script>
+</body>
+</html>
