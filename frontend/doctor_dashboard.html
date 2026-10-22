@@ -23,7 +23,11 @@
             <h2><i data-lucide="users"></i> Assigned patients</h2>
             <p class="card-sub" id="scope-note">Loading…</p>
           </div>
-          <div class="row">
+          <div class="row" style="gap:.5rem;align-items:center;">
+            <div class="row tight" style="background:var(--slate-100);padding:3px;border-radius:8px;border:1px solid var(--border);">
+              <button type="button" class="btn sm primary" id="btn-triage-view"><i data-lucide="list-checks"></i> Triage Board</button>
+              <button type="button" class="btn sm secondary" id="btn-telemetry-view" style="border:none;background:transparent;"><i data-lucide="activity"></i> Full Telemetry</button>
+            </div>
             <button class="btn secondary sm" id="refresh-btn"><i data-lucide="refresh-cw"></i> Refresh</button>
           </div>
         </div>
@@ -59,15 +63,17 @@
         </div>
         <div class="table-wrap">
           <table class="data" id="patient-table">
-            <thead>
+            <thead id="patient-thead">
               <tr>
-                <th>Patient ID</th><th>Name</th><th>Device</th>
-                <th>HR (bpm)</th><th>SpO₂ (%)</th><th>Ambient °C</th><th>Humidity %</th>
-                <th>SIMULATED BP</th>
-                <th>Last data</th><th>Quality</th><th>Priority</th><th>Alerts</th><th></th>
+                <th style="min-width:180px;">Patient</th>
+                <th style="min-width:280px;">Condition / Flagged Concern</th>
+                <th style="min-width:140px;">Priority Level</th>
+                <th style="min-width:160px;">Vitals Quick Glance</th>
+                <th style="min-width:100px;">Alerts</th>
+                <th style="width:100px;"></th>
               </tr>
             </thead>
-            <tbody id="patient-tbody"><tr><td colspan="13" class="center muted"><div class="spinner"></div></td></tr></tbody>
+            <tbody id="patient-tbody"><tr><td colspan="6" class="center muted"><div class="spinner"></div></td></tr></tbody>
           </table>
         </div>
         <p class="text-xs muted mt">
@@ -85,6 +91,51 @@
 <script>
 "use strict";
 let ALL = [];
+let currentView = "triage"; // "triage" | "telemetry"
+
+function setView(view) {
+  currentView = view;
+  const btnTriage = document.getElementById("btn-triage-view");
+  const btnTelemetry = document.getElementById("btn-telemetry-view");
+  if (view === "triage") {
+    btnTriage.className = "btn sm primary";
+    btnTriage.style.background = "";
+    btnTriage.style.border = "";
+    btnTelemetry.className = "btn sm secondary";
+    btnTelemetry.style.background = "transparent";
+    btnTelemetry.style.border = "none";
+  } else {
+    btnTelemetry.className = "btn sm primary";
+    btnTelemetry.style.background = "";
+    btnTelemetry.style.border = "";
+    btnTriage.className = "btn sm secondary";
+    btnTriage.style.background = "transparent";
+    btnTriage.style.border = "none";
+  }
+  renderHeader();
+  applyFilters();
+}
+
+function renderHeader() {
+  const thead = document.getElementById("patient-thead");
+  if (currentView === "triage") {
+    thead.innerHTML = `<tr>
+      <th style="min-width:180px;">Patient</th>
+      <th style="min-width:280px;">Condition / Flagged Concern</th>
+      <th style="min-width:140px;">Priority Level</th>
+      <th style="min-width:160px;">Vitals Quick Glance</th>
+      <th style="min-width:100px;">Alerts</th>
+      <th style="width:100px;"></th>
+    </tr>`;
+  } else {
+    thead.innerHTML = `<tr>
+      <th>Patient ID</th><th>Name</th><th>Device</th>
+      <th>HR (bpm)</th><th>SpO₂ (%)</th><th>Ambient °C</th><th>Humidity %</th>
+      <th>SIMULATED BP</th>
+      <th>Last data</th><th>Quality</th><th>Priority</th><th>Alerts</th><th></th>
+    </tr>`;
+  }
+}
 
 function applyFilters() {
   const q = document.getElementById("search").value.trim().toLowerCase();
@@ -92,7 +143,7 @@ function applyFilters() {
   const stale = document.getElementById("stale-filter").value;
   const sort = document.getElementById("sort-filter") ? document.getElementById("sort-filter").value : "priority";
   let rows = ALL.filter((p) => {
-    if (q && !(p.full_name.toLowerCase().includes(q) || p.email.toLowerCase().includes(q))) return false;
+    if (q && !(p.full_name.toLowerCase().includes(q) || p.email.toLowerCase().includes(q) || (p.disease_label && p.disease_label.toLowerCase().includes(q)))) return false;
     const prio = p.priority || p.risk_category;
     if (risk && prio !== risk) return false;
     if (stale === "live" && (p.data_stale || !p.last_data_at)) return false;
@@ -117,41 +168,83 @@ function applyFilters() {
 
 function renderRows(rows) {
   const tbody = document.getElementById("patient-tbody");
+  const cols = currentView === "triage" ? 6 : 13;
   if (!rows.length) {
-    tbody.innerHTML = `<tr><td colspan="13" class="center muted" style="padding:2rem;">
+    tbody.innerHTML = `<tr><td colspan="${cols}" class="center muted" style="padding:2rem;">
       No patients match the current filters.</td></tr>`;
     return;
   }
-  tbody.innerHTML = rows.map((p) => {
-    const prio = p.priority || p.risk_category;
-    const prioLabel = p.priority_label || prio;
-    const bp = (p.latest_systolic_bp != null || p.latest_diastolic_bp != null)
-      ? `${p.latest_systolic_bp != null ? p.latest_systolic_bp : "—"}/${p.latest_diastolic_bp != null ? p.latest_diastolic_bp : "—"}`
-      : "—";
-    return `
-    <tr class="clickable" data-id="${p.user_id}" tabindex="0"
-        onclick="location.href='/patient_monitor.html?id=${p.user_id}'"
-        onkeydown="if(event.key==='Enter')location.href='/patient_monitor.html?id=${p.user_id}'">
-      <td class="mono">#${p.user_id}</td>
-      <td><strong>${ICU.esc(p.full_name)}</strong><br><span class="text-xs muted">${ICU.esc(p.ward || "")} ${ICU.esc(p.bed_label || "")}</span></td>
-      <td class="mono">${ICU.esc(p.assigned_device_uid || "—")}
-        <br><span class="badge ${p.device_online ? "online" : (p.assigned_device_uid ? "offline" : "neutral")}">
-          ${p.assigned_device_uid ? (p.device_online ? "online" : "offline") : "unassigned"}</span></td>
-      <td class="num">${p.latest_hr != null ? ICU.num(p.latest_hr) : "—"}</td>
-      <td class="num">${p.latest_spo2 != null ? ICU.num(p.latest_spo2) : "—"}</td>
-      <td class="num">${p.latest_ambient_temp != null ? ICU.num(p.latest_ambient_temp, 1) : "—"}</td>
-      <td class="num">${p.latest_humidity != null ? ICU.num(p.latest_humidity) : "—"}</td>
-      <td class="num">${bp} ${p.bp_simulated ? '<span class="badge simulated">SIM</span>' : ""}</td>
-      <td class="dim">${p.last_data_at ? ICU.fmtTime(p.last_data_at) : "never"}
-        ${p.last_data_at ? `<br><span class="badge ${p.data_stale ? "stale" : "ok"}">${p.data_stale ? "stale" : "fresh"}</span>` : ""}</td>
-      <td>${ICU.qualityBadge(p.signal_quality)}</td>
-      <td>${prio === "insufficient_data" ? '<span class="badge neutral">Insufficient Data</span>' : ICU.riskBadge(prio)}</td>
-      <td>${p.critical_alert_count ? `<span class="badge critical">${p.critical_alert_count} crit</span>`
-          : p.active_alert_count ? `<span class="badge moderate">${p.active_alert_count}</span>`
-          : `<span class="badge low">0</span>`}</td>
-      <td><i data-lucide="chevron-right" class="muted"></i></td>
-    </tr>`;
-  }).join("");
+
+  if (currentView === "triage") {
+    tbody.innerHTML = rows.map((p) => {
+      const prio = p.priority || p.risk_category;
+      const prioBadge = prio === "insufficient_data"
+        ? '<span class="badge neutral">Insufficient Data</span>'
+        : ICU.riskBadge(prio);
+      return `
+      <tr class="clickable" data-id="${p.user_id}" tabindex="0"
+          onclick="location.href='/patient_monitor.html?id=${p.user_id}'"
+          onkeydown="if(event.key==='Enter')location.href='/patient_monitor.html?id=${p.user_id}'">
+        <td>
+          <div style="font-weight:700;font-size:1.02rem;color:var(--text);">P${p.user_id} — ${ICU.esc(p.full_name)}</div>
+          <div class="text-xs muted">${ICU.esc(p.ward || "Ward —")} · ${ICU.esc(p.bed_label || "Bed —")}</div>
+        </td>
+        <td>
+          <div style="font-weight:600;font-size:0.95rem;color:var(--text);"><i data-lucide="alert-circle" style="width:14px;height:14px;vertical-align:middle;margin-right:4px;"></i>${ICU.esc(p.disease_label || "Stable / Normal Vitals")}</div>
+          <div class="text-xs muted" style="max-width:340px;white-space:normal;line-height:1.35;margin-top:2px;">${ICU.esc(p.disease_summary || "Vital signs within configured safe limits.")}</div>
+        </td>
+        <td>
+          ${prioBadge}
+        </td>
+        <td>
+          <div class="text-sm">
+            <span title="Heart rate"><i data-lucide="heart-pulse" style="width:13px;height:13px;color:#f43f5e;vertical-align:middle;"></i> ${p.latest_hr != null ? ICU.num(p.latest_hr) + ' bpm' : '—'}</span>
+            &nbsp;·&nbsp;
+            <span title="SpO2 estimate"><i data-lucide="droplets" style="width:13px;height:13px;color:#3b82f6;vertical-align:middle;"></i> ${p.latest_spo2 != null ? ICU.num(p.latest_spo2) + '%' : '—'}</span>
+          </div>
+          <div class="text-xs muted" style="margin-top:2px;">${p.last_data_at ? (p.data_stale ? '<span class="badge stale">Stale</span>' : '<span class="badge ok">Live</span>') : '<span class="badge offline">No data</span>'}</div>
+        </td>
+        <td>
+          ${p.critical_alert_count ? `<span class="badge critical">${p.critical_alert_count} crit</span>`
+            : p.active_alert_count ? `<span class="badge moderate">${p.active_alert_count} active</span>`
+            : `<span class="badge low">0</span>`}
+        </td>
+        <td class="right">
+          <button class="btn secondary sm" style="pointer-events:none;"><i data-lucide="activity"></i> Monitor</button>
+        </td>
+      </tr>`;
+    }).join("");
+  } else {
+    tbody.innerHTML = rows.map((p) => {
+      const prio = p.priority || p.risk_category;
+      const bp = (p.latest_systolic_bp != null || p.latest_diastolic_bp != null)
+        ? `${p.latest_systolic_bp != null ? p.latest_systolic_bp : "—"}/${p.latest_diastolic_bp != null ? p.latest_diastolic_bp : "—"}`
+        : "—";
+      return `
+      <tr class="clickable" data-id="${p.user_id}" tabindex="0"
+          onclick="location.href='/patient_monitor.html?id=${p.user_id}'"
+          onkeydown="if(event.key==='Enter')location.href='/patient_monitor.html?id=${p.user_id}'">
+        <td class="mono">#${p.user_id}</td>
+        <td><strong>${ICU.esc(p.full_name)}</strong><br><span class="text-xs muted">${ICU.esc(p.ward || "")} ${ICU.esc(p.bed_label || "")}</span></td>
+        <td class="mono">${ICU.esc(p.assigned_device_uid || "—")}
+          <br><span class="badge ${p.device_online ? "online" : (p.assigned_device_uid ? "offline" : "neutral")}">
+            ${p.assigned_device_uid ? (p.device_online ? "online" : "offline") : "unassigned"}</span></td>
+        <td class="num">${p.latest_hr != null ? ICU.num(p.latest_hr) : "—"}</td>
+        <td class="num">${p.latest_spo2 != null ? ICU.num(p.latest_spo2) : "—"}</td>
+        <td class="num">${p.latest_ambient_temp != null ? ICU.num(p.latest_ambient_temp, 1) : "—"}</td>
+        <td class="num">${p.latest_humidity != null ? ICU.num(p.latest_humidity) : "—"}</td>
+        <td class="num">${bp} ${p.bp_simulated ? '<span class="badge simulated">SIM</span>' : ""}</td>
+        <td class="dim">${p.last_data_at ? ICU.fmtTime(p.last_data_at) : "never"}
+          ${p.last_data_at ? `<br><span class="badge ${p.data_stale ? "stale" : "ok"}">${p.data_stale ? "stale" : "fresh"}</span>` : ""}</td>
+        <td>${ICU.qualityBadge(p.signal_quality)}</td>
+        <td>${prio === "insufficient_data" ? '<span class="badge neutral">Insufficient Data</span>' : ICU.riskBadge(prio)}</td>
+        <td>${p.critical_alert_count ? `<span class="badge critical">${p.critical_alert_count} crit</span>`
+            : p.active_alert_count ? `<span class="badge moderate">${p.active_alert_count}</span>`
+            : `<span class="badge low">0</span>`}</td>
+        <td><i data-lucide="chevron-right" class="muted"></i></td>
+      </tr>`;
+    }).join("");
+  }
   ICU.icons();
 }
 
@@ -171,6 +264,8 @@ async function load() {
 (async function boot() {
   const me = await ICUShell.init({ title: "Patients", active: "/doctor_dashboard.html", roles: ["admin", "doctor"] });
   if (!me) return;
+  document.getElementById("btn-triage-view").addEventListener("click", () => setView("triage"));
+  document.getElementById("btn-telemetry-view").addEventListener("click", () => setView("telemetry"));
   document.getElementById("search").addEventListener("input", applyFilters);
   document.getElementById("risk-filter").addEventListener("change", applyFilters);
   document.getElementById("stale-filter").addEventListener("change", applyFilters);

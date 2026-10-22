@@ -300,6 +300,9 @@ class PatientListItem(BaseModel):
     # patient with no usable readings is never presented as "low" (normal).
     priority: str = "low"
     priority_label: str = "Low"
+    disease_module: str = "general"
+    disease_label: str = "Stable / Normal"
+    disease_summary: str | None = None
     active_alert_count: int
     critical_alert_count: int
 

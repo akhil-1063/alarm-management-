@@ -164,25 +164,24 @@ async function renderDoctor() {
     </div>
 
     <div class="card">
-      <div class="card-head"><h2><i data-lucide="users"></i> Patient risk board</h2>
-        <a class="btn primary sm" href="/doctor_dashboard.html"><i data-lucide="list"></i> Open full patient table</a></div>
+      <div class="card-head"><h2><i data-lucide="list-checks"></i> Patient Triage Board</h2>
+        <a class="btn primary sm" href="/doctor_dashboard.html"><i data-lucide="list"></i> Open full patient list</a></div>
       <div class="table-wrap">
         <table class="data">
-          <thead><tr><th>Patient</th><th>Ward / Bed</th><th>Device</th><th>Status</th><th>Risk</th><th>Alerts</th><th></th></tr></thead>
+          <thead><tr><th>Patient</th><th>Condition / Disease Flag</th><th>Priority</th><th>Ward / Bed</th><th>Alerts</th><th></th></tr></thead>
           <tbody>
-            ${patients.map((p) => `<tr class="clickable" onclick="location.href='/patient_monitor.html?id=${p.user_id}'">
-              <td><strong>${ICU.esc(p.full_name)}</strong><br><span class="text-xs muted">${ICU.esc(p.email)}</span></td>
+            ${patients.map((p) => {
+              const prio = p.priority || p.risk_category;
+              return `<tr class="clickable" onclick="location.href='/patient_monitor.html?id=${p.user_id}'">
+              <td><strong>P${p.user_id} — ${ICU.esc(p.full_name)}</strong><br><span class="text-xs muted">${ICU.esc(p.email)}</span></td>
+              <td><strong>${ICU.esc(p.disease_label || "Stable / Normal Vitals")}</strong><br><span class="text-xs muted">${ICU.esc(p.disease_summary || "Vital signs within safe limits.")}</span></td>
+              <td>${prio === "insufficient_data" ? '<span class="badge neutral">Insufficient Data</span>' : ICU.riskBadge(prio)}</td>
               <td>${ICU.esc(p.ward || "—")} / ${ICU.esc(p.bed_label || "—")}</td>
-              <td class="mono">${ICU.esc(p.assigned_device_uid || "unassigned")}
-                <br><span class="badge ${p.device_online ? "online" : "offline"}">${p.device_online ? "online" : "offline"}</span></td>
-              <td>${p.last_data_at
-                ? `<span class="badge ${p.data_stale ? "stale" : "ok"}">${p.data_stale ? "stale" : "live"}</span><br><span class="text-xs muted">${ICU.fmtTime(p.last_data_at)}</span>`
-                : `<span class="badge offline">no data</span>`}</td>
-              <td>${ICU.riskBadge(p.risk_category)}</td>
               <td>${p.critical_alert_count ? `<span class="badge critical">${p.critical_alert_count} crit</span>` :
                   p.active_alert_count ? `<span class="badge moderate">${p.active_alert_count}</span>` : `<span class="badge low">0</span>`}</td>
               <td><i data-lucide="chevron-right" class="muted"></i></td>
-            </tr>`).join("") || `<tr><td colspan="7" class="center muted">No patients assigned to you yet — ask an administrator to assign patients.</td></tr>`}
+            </tr>`;
+            }).join("") || `<tr><td colspan="6" class="center muted">No patients assigned to you yet — ask an administrator to assign patients.</td></tr>`}
           </tbody>
         </table>
       </div>

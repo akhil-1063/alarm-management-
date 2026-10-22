@@ -1,6 +1,7 @@
 """Shared helpers for API modules: access checks, patient lists, summaries."""
 from __future__ import annotations
 
+import json
 from datetime import datetime, timedelta
 
 from fastapi import HTTPException
@@ -123,6 +124,41 @@ def build_patient_list_item(db: Session, patient: User) -> dict:
         "insufficient_data": "Insufficient Data",
     }.get(priority, priority.title())
 
+    # Map dominant disease module & clean labels
+    disease_module = risk.module if risk else "general"
+    label_map = {
+        "possible_cardiac": "Cardiac Concern",
+        "cardiac": "Cardiac Concern",
+        "possible_sepsis": "Infection / Sepsis Risk",
+        "infection": "Infection / Sepsis Risk",
+        "stroke_suspect": "Stroke Suspect",
+        "general_abnormalities": "Abnormal Vitals",
+        "technical": "Device / Sensor Fault",
+        "simulated_blood_pressure": "Simulated BP Alert",
+    }
+
+    disease_summary = None
+    if risk and risk.reasons:
+        try:
+            parsed_reasons = json.loads(risk.reasons)
+            if parsed_reasons and isinstance(parsed_reasons, list) and len(parsed_reasons) > 0:
+                disease_summary = parsed_reasons[0]
+        except Exception:
+            disease_summary = None
+
+    if priority == "insufficient_data":
+        disease_label = "Insufficient Data / Offline"
+        disease_summary = disease_summary or "No fresh physiological readings received."
+    else:
+        disease_label = label_map.get(disease_module)
+        if not disease_label:
+            if priority in ("high", "critical"):
+                disease_label = "Critical Vital Instability"
+            elif priority == "moderate":
+                disease_label = "Elevated Risk Flag"
+            else:
+                disease_label = "Stable / Normal Vitals"
+
     return {
         "user_id": patient.id,
         "full_name": patient.full_name,
@@ -146,6 +182,9 @@ def build_patient_list_item(db: Session, patient: User) -> dict:
         "risk_category": risk.risk_category if risk else "low",
         "priority": priority,
         "priority_label": priority_label,
+        "disease_module": disease_module,
+        "disease_label": disease_label,
+        "disease_summary": disease_summary,
         "active_alert_count": sum(1 for a in alerts if a.status in ("active", "acknowledged", "under_review")),
         "critical_alert_count": sum(1 for a in alerts if a.severity == "critical" and a.status in ("active", "acknowledged", "under_review")),
     }
